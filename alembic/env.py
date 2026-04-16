@@ -42,9 +42,26 @@ POSTGIS_TABLES = {
 }
 
 
-def include_object(object, name, type_, reflected, compare_to):
+INCLUDED_SCHEMAS = {"public"}
+
+
+def include_name(name, type_, parent_names):
+    # Bretelles : filtrage au name-listing (avant réflexion complète).
+    if type_ == "schema":
+        return name in INCLUDED_SCHEMAS or name is None
     if type_ == "table" and name in POSTGIS_TABLES:
         return False
+    return True
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    # Ceinture : filtrage au niveau de l'objet réfléchi.
+    if type_ == "table" and name in POSTGIS_TABLES:
+        return False
+    if type_ == "table":
+        schema = getattr(object, "schema", None)
+        if schema not in (None, "public"):
+            return False
     # On filtre aussi les index portés par ces tables
     if type_ == "index" and compare_to is None:
         table_name = getattr(getattr(object, "table", None), "name", None)
@@ -60,7 +77,9 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_name=include_name,
         include_object=include_object,
+        include_schemas=True,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -70,7 +89,9 @@ def do_run_migrations(connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
+        include_name=include_name,
         include_object=include_object,
+        include_schemas=True,
     )
     with context.begin_transaction():
         context.run_migrations()

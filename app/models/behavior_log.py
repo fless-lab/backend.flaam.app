@@ -22,6 +22,9 @@ class BehaviorLog(Base, UUIDMixin, TimestampMixin):
         UUID(as_uuid=True), nullable=True
     )
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Attribut Python renommé en `extra_data` car `metadata` est réservé
+    # par l'API Declarative de SQLAlchemy. La colonne SQL reste `metadata`
+    # pour rester conforme à la spec (§3.20).
     extra_data: Mapped[dict | None] = mapped_column(
         "metadata", JSONB, nullable=True
     )
