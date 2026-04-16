@@ -59,7 +59,7 @@ async def _unread_count(
         select(func.count(Message.id)).where(
             Message.match_id == match_id,
             Message.sender_id != me_id,
-            Message.is_read.is_(False),
+            Message.status != "read",
         )
     )
     return int(row.scalar_one() or 0)

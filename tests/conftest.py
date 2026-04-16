@@ -111,6 +111,70 @@ async def client(db_session, redis_client) -> AsyncIterator[AsyncClient]:
 
 
 @pytest_asyncio.fixture()
+async def sync_client(engine, redis_client):
+    """
+    Client synchrone Starlette pour les tests WebSocket.
+
+    Problème loop : le TestClient Starlette exécute l'app dans un
+    thread/loop séparé. Les connexions asyncpg sont loop-affines donc
+    on ne peut pas partager le pool avec pytest-asyncio.
+
+    Solution : on rebind ``app.db.session.async_session`` sur un engine
+    ``NullPool`` (pas de cache de connexion) pour la durée du test,
+    et on laisse le lifespan du TestClient (re)initialiser le redis_pool
+    dans son propre loop.
+    """
+    from starlette.testclient import TestClient
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.db import session as session_module
+    from app.ws import chat as ws_chat_module
+
+    # Factory qui crée un engine NEUF par session. asyncpg attache des
+    # Futures au loop courant à la création du protocole ; un engine
+    # partagé entre plusieurs portails (starlette crée un portal par
+    # websocket_connect) casse cet invariant.
+    #
+    # Subtilité : `app.ws.chat` a fait `from app.db.session import
+    # async_session`, donc il détient une RÉFÉRENCE au factory original.
+    # Monkeypatcher uniquement `session_module.async_session` ne suffit
+    # pas : il faut aussi patcher le nom dans chaque module consommateur.
+    original_async_session = session_module.async_session
+    original_ws_async_session = ws_chat_module.async_session
+
+    def _fresh_session():
+        eng = create_async_engine(TEST_DB_URL, poolclass=NullPool)
+        factory = async_sessionmaker(
+            eng, class_=AsyncSession, expire_on_commit=False
+        )
+        return factory()
+
+    session_module.async_session = _fresh_session
+    ws_chat_module.async_session = _fresh_session
+
+    tc = TestClient(app)
+    try:
+        yield tc
+    finally:
+        tc.close()
+        session_module.async_session = original_async_session
+        ws_chat_module.async_session = original_ws_async_session
+        app.dependency_overrides.clear()
+        # Nettoyage : vide les données créées par les WS tests.
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "TRUNCATE TABLE messages, matches, user_spots, "
+                    "user_quartiers, photos, profiles, users, spots, "
+                    "quartier_proximities, quartiers, cities "
+                    "RESTART IDENTITY CASCADE"
+                )
+            )
+
+
+@pytest_asyncio.fixture()
 async def test_user(db_session):
     """Utilisateur authentifié prêt pour les tests qui nécessitent un JWT."""
     from app.models.user import User

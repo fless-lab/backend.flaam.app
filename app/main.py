@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.db.redis import redis_pool
 from app.db.session import engine
+from app.ws.chat import router as ws_chat_router
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -45,6 +46,8 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+# WebSocket chat (§5.8) — pas de préfixe API v1 : ws://host/ws/chat
+app.include_router(ws_chat_router)
 
 # Photos MVP : servis depuis STORAGE_ROOT (remplacé par R2 en Session 11).
 _uploads_dir = Path(settings.storage_root)

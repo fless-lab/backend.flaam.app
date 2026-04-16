@@ -13,7 +13,12 @@ class AppException(Exception):
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"detail": exc.detail},
-        )
+        payload: dict = {"detail": exc.detail}
+        # Modération : propage les messages user traduits si présents (§18).
+        fr = getattr(exc, "user_message_fr", None)
+        en = getattr(exc, "user_message_en", None)
+        if fr:
+            payload["user_message_fr"] = fr
+        if en:
+            payload["user_message_en"] = en
+        return JSONResponse(status_code=exc.status_code, content=payload)

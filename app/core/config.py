@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     rate_limit_likes_free: int = 5
     rate_limit_likes_premium: int = 50
 
+    # Chat — messages & WebSocket (S7)
+    message_moderation_mode: str = "rules"  # rules | llm_api | off
+    voice_max_size_bytes: int = 2 * 1024 * 1024  # 2 MB
+    voice_max_duration_seconds: int = 60
+    ws_heartbeat_seconds: int = 30
+    ws_online_ttl_seconds: int = 300
+    ws_idle_timeout_seconds: int = 60
+
     # Sentry
     sentry_dsn: str = ""
 
