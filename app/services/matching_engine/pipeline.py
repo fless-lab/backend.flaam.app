@@ -199,13 +199,13 @@ async def generate_feed_for_user(
     final_scores: dict[UUID, float] = {}
     for cid in candidate_ids:
         g = geo_scores.get(cid, 0.0)
-        l = lifestyle_scores.get(cid, 0.0)
+        lif = lifestyle_scores.get(cid, 0.0)
         m = behavior_mults.get(cid, 1.0)
         # geo + lifestyle pondérés, ajustés par le multiplicateur behavior.
         # Le poids behavior_w ∈ [0.10, 0.45] pilote l'amplitude de l'effet :
         # on blend linéairement entre 1.0 (pas d'effet) et m (effet total).
         behavior_effect = 1.0 + (m - 1.0) * beh_w
-        final_scores[cid] = (geo_w * g + life_w * l) * behavior_effect
+        final_scores[cid] = (geo_w * g + life_w * lif) * behavior_effect
 
     sorted_candidates = sorted(
         final_scores.items(), key=lambda x: x[1], reverse=True

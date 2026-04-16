@@ -98,7 +98,7 @@ async def test_immediate_money_detected(db_session, redis_client):
 async def test_report_count_threshold(db_session, redis_client):
     """> 3 reports reçus → signal report_count actif."""
     data = await seed_ama_and_kofi(db_session)
-    ama, kofi = data["ama"], data["kofi"]
+    _ama, kofi = data["ama"], data["kofi"]
     base = {"city": data["city"]}
 
     # Crée 4 reporters distincts qui reportent kofi

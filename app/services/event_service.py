@@ -307,8 +307,8 @@ async def matches_preview(
     combined: list[tuple[UUID, float, float]] = []
     for cid in compatible:
         g = geo.get(cid, 0.0)
-        l = life.get(cid, 0.0)
-        combined.append((cid, g, l))
+        lif = life.get(cid, 0.0)
+        combined.append((cid, g, lif))
     combined.sort(key=lambda t: (t[1] + t[2]), reverse=True)
     top = combined[:top_n]
 
@@ -329,7 +329,7 @@ async def matches_preview(
         primary_photo.setdefault(ph.user_id, ph.url)
 
     top_list = []
-    for cid, g, l in top:
+    for cid, g, lif in top:
         p = profiles.get(cid)
         top_list.append(
             {
@@ -337,7 +337,7 @@ async def matches_preview(
                 "display_name": p.display_name if p else "",
                 "primary_photo_url": primary_photo.get(cid),
                 "geo_score": int(round(g * 100)),
-                "lifestyle_score": int(round(l * 100)),
+                "lifestyle_score": int(round(lif * 100)),
             }
         )
 

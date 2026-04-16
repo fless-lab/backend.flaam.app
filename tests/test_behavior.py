@@ -51,7 +51,7 @@ async def test_behavior_log_batch_inserts(
     # On avait déjà des BehaviorLog de get_crossed / log_view ? Non, ici
     # aucun flow feed n'a été joué → exactement 3 rows.
     assert len(logs) >= 3
-    types = {l.event_type for l in logs}
+    types = {log.event_type for log in logs}
     assert "profile_viewed" in types
     assert "prompt_read" in types
 

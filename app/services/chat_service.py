@@ -488,7 +488,7 @@ async def respond_meetup(
     if msg is None or msg.message_type != "meetup":
         raise AppException(status.HTTP_404_NOT_FOUND, "meetup_not_found")
 
-    match = await _get_active_match(msg.match_id, responder.id, db)
+    _match = await _get_active_match(msg.match_id, responder.id, db)
     # Le responder doit être le DESTINATAIRE de la proposition.
     if msg.sender_id == responder.id:
         raise AppException(status.HTTP_403_FORBIDDEN, "cannot_respond_own_meetup")

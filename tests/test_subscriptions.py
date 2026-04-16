@@ -39,7 +39,7 @@ async def _make_city(db_session, user=None):
 async def test_subscription_plans_returns_prices(
     client, auth_headers, db_session, test_user
 ):
-    city = await _make_city(db_session, test_user)
+    _city = await _make_city(db_session, test_user)
     # refresh pour que user.city soit chargé dans la route
     await db_session.refresh(test_user)
 

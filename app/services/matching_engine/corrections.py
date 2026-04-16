@@ -66,13 +66,13 @@ async def inject_wildcards(
         if cid in top_set:
             continue
         g = geo_scores.get(cid, 0.0)
-        l = lifestyle_scores.get(cid, 0.0)
+        lif = lifestyle_scores.get(cid, 0.0)
         if g < geo_median:
             continue
-        if l >= 0.3:
+        if lif >= 0.3:
             continue
         # Ancrage géo fort × divergence lifestyle forte
-        rank = g * (1.0 - l)
+        rank = g * (1.0 - lif)
         wildcard_pool.append((cid, rank))
 
     wildcard_pool.sort(key=lambda x: x[1], reverse=True)

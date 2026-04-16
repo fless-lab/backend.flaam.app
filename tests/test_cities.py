@@ -75,7 +75,7 @@ async def _seed_cities(db_session):
 
 
 async def test_list_cities_by_country_filters_hidden(client, db_session):
-    cities = await _seed_cities(db_session)
+    _cities = await _seed_cities(db_session)
     resp = await client.get("/cities?country_code=TG")
     assert resp.status_code == 200
     body = resp.json()
