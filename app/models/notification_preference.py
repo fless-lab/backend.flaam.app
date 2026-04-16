@@ -25,6 +25,11 @@ class NotificationPreference(Base, UUIDMixin, TimestampMixin):
     events: Mapped[bool] = mapped_column(Boolean, default=True)
     date_reminder: Mapped[bool] = mapped_column(Boolean, default=True)
     weekly_digest: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Feature C (Session 9) : reply reminders. Activé par défaut ;
+    # l'utilisateur peut le désactiver via PUT /notifications/preferences.
+    reply_reminders: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
 
     daily_feed_hour: Mapped[int] = mapped_column(Integer, default=9)
     quiet_start_hour: Mapped[int] = mapped_column(Integer, default=23)

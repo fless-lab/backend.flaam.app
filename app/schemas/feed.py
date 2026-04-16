@@ -80,6 +80,12 @@ class CrossedFeedResponse(BaseModel):
 
 class LikeBody(BaseModel):
     liked_prompt: str | None = Field(default=None, max_length=100)
+    # ── Targeted like (Feature A, Session 9) ──
+    # Honoré uniquement quand flag_targeted_likes_enabled = 1.0.
+    # Sinon ces 3 champs sont ignorés silencieusement.
+    target_type: Literal["profile", "photo", "prompt"] | None = None
+    target_id: str | None = Field(default=None, max_length=100)
+    comment: str | None = Field(default=None, max_length=200)
 
 
 class LikeResponse(BaseModel):

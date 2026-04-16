@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis
+from app.core.rate_limiter import rate_limit
 from app.models.user import User
 from app.schemas.feed import (
     CrossedFeedResponse,
@@ -42,7 +43,17 @@ async def get_crossed(
     return await feed_service.get_crossed_feed(user, db, redis)
 
 
-@router.post("/{profile_id}/like", response_model=LikeResponse)
+@router.post(
+    "/{profile_id}/like",
+    response_model=LikeResponse,
+    dependencies=[
+        Depends(
+            rate_limit(
+                max_requests=30, window_seconds=60, name="feed_like"
+            )
+        )
+    ],
+)
 async def like(
     profile_id: UUID,
     body: LikeBody,

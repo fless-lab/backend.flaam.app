@@ -41,6 +41,11 @@ class AccountHistory(Base, UUIDMixin):
         DateTime(timezone=True), nullable=True
     )
     blocked_by_hashes: Mapped[list] = mapped_column(JSONB, default=list)
+    # Compteur dénormalisé (Session 9) : len(blocked_by_hashes). Évite
+    # de charger le JSONB pour lire le count côté admin.
+    blocked_by_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (

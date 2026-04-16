@@ -102,6 +102,16 @@ MATCHING_DEFAULTS: dict[str, float] = {
     # Choix assumé "qualité > volume" — voir docs/flaam-business-model.md.
     # Configurable en prod via admin API si besoin de passer à 15.
     "daily_likes_premium": 10.0,
+
+    # ── Feature flags (§28) ──
+    # Convention : 1.0 = activé, 0.0 = désactivé. Exposés par
+    # GET /config/feature-flags après get_configs() + comparaison >= 0.5.
+    "flag_targeted_likes_enabled": 0.0,   # Feature A, désactivé au MVP
+    "flag_reply_reminders_enabled": 1.0,  # Feature C, actif par défaut
+    "flag_premium_enabled": 1.0,
+    "flag_events_enabled": 1.0,
+    "flag_voice_messages_enabled": 1.0,
+    "flag_ice_breakers_enabled": 1.0,
 }
 
 

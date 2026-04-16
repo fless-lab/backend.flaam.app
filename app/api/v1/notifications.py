@@ -26,6 +26,7 @@ def _prefs_to_dict(prefs) -> dict:
         "events": prefs.events,
         "date_reminder": prefs.date_reminder,
         "weekly_digest": prefs.weekly_digest,
+        "reply_reminders": prefs.reply_reminders,
         "daily_feed_hour": prefs.daily_feed_hour,
         "quiet_start_hour": prefs.quiet_start_hour,
         "quiet_end_hour": prefs.quiet_end_hour,

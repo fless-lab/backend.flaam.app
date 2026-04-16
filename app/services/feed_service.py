@@ -164,6 +164,39 @@ def _photo_dicts(user: User) -> list[dict]:
     ]
 
 
+async def _increment_prompt_like_count(
+    target_user_id: UUID, prompt_id: str, db: AsyncSession
+) -> None:
+    """
+    Feature B (Session 9) — tracking A/B des prompts.
+
+    Incrémente `like_count` dans l'entrée matching `prompt_id` du
+    JSONB `prompts` du Profile. Silencieux si le prompt n'existe pas
+    (ex : le client a envoyé un mauvais id).
+    """
+    res = await db.execute(
+        select(Profile).where(Profile.user_id == target_user_id)
+    )
+    profile = res.scalar_one_or_none()
+    if profile is None or not profile.prompts:
+        return
+    updated = False
+    new_list: list[dict] = []
+    for entry in profile.prompts:
+        if not isinstance(entry, dict):
+            new_list.append(entry)
+            continue
+        entry_id = entry.get("prompt_id") or entry.get("question")
+        if entry_id == prompt_id:
+            count = int(entry.get("like_count") or 0) + 1
+            new_list.append({**entry, "like_count": count})
+            updated = True
+        else:
+            new_list.append(entry)
+    if updated:
+        profile.prompts = new_list
+
+
 def _prompts_dicts(profile: Profile) -> list[dict]:
     out: list[dict] = []
     for p in profile.prompts or []:
@@ -565,6 +598,29 @@ async def like_profile(
 
     liked_prompt = (body or {}).get("liked_prompt")
 
+    # ── Targeted like (Feature A) ──
+    # Lecture du flag synchrone : 1 appel config déjà en cache Redis.
+    targeted_enabled = (
+        await get_config("flag_targeted_likes_enabled", redis_client, db)
+        >= 0.5
+    )
+    target_type = (
+        (body or {}).get("target_type") if targeted_enabled else None
+    )
+    like_target_id = (
+        (body or {}).get("target_id") if targeted_enabled else None
+    )
+    like_comment = (
+        (body or {}).get("comment") if targeted_enabled else None
+    )
+    if target_type not in (None, "profile", "photo", "prompt"):
+        target_type = None
+        like_target_id = None
+        like_comment = None
+    # target_type == "profile" est équivalent au comportement par défaut.
+    if target_type == "profile":
+        target_type = None
+
     # 4. Cherche une réciproque pending (target m'a déjà liké)
     reciprocal_row = await db.execute(
         select(Match).where(
@@ -588,6 +644,12 @@ async def like_profile(
             reciprocal.liked_prompt_id = liked_prompt[:50]
         match_obj = reciprocal
         match_result_kind = "matched"
+        # Le like est de nous → on capture notre targeting sur le match
+        # existant (qui avait l'autre user comme user_a).
+        if target_type and not reciprocal.like_target_type:
+            reciprocal.like_target_type = target_type
+            reciprocal.like_target_id = (like_target_id or "")[:100] or None
+            reciprocal.like_comment = like_comment
     else:
         # ── Check si j'ai déjà liké cette personne (idem sans key) ─────
         mine_row = await db.execute(
@@ -614,6 +676,9 @@ async def like_profile(
             # Changement d'avis : on réactive en pending
             mine.status = "pending"
             mine.liked_prompt_id = liked_prompt[:50] if liked_prompt else None
+            mine.like_target_type = target_type
+            mine.like_target_id = (like_target_id or "")[:100] or None
+            mine.like_comment = like_comment
             match_obj = mine
         else:
             match_obj = Match(
@@ -621,25 +686,39 @@ async def like_profile(
                 user_b_id=target_id,
                 status="pending",
                 liked_prompt_id=liked_prompt[:50] if liked_prompt else None,
+                like_target_type=target_type,
+                like_target_id=(like_target_id or "")[:100] or None,
+                like_comment=like_comment,
             )
             db.add(match_obj)
         match_result_kind = "liked"
+
+    # ── Feature B : A/B prompts — incrément passif ──
+    # Quand le like cible un prompt, on incrémente prompt.like_count
+    # dans le JSONB du profile du target. Tracking, pas de feature flag.
+    if target_type == "prompt" and like_target_id:
+        await _increment_prompt_like_count(target_id, like_target_id, db)
 
     await db.flush()
 
     # 5. Ice-breaker si match mutuel
     ice_breaker: str | None = None
     if match_result_kind == "matched":
-        # Liker du prompt = user_a_id (celui qui a liké le prompt en premier)
-        # Le recipient (destinataire du message system) = user courant
-        liker_id = match_obj.user_a_id
-        recipient_id = match_obj.user_b_id
-        liker = await _load_user_full(liker_id, db)
-        recipient = await _load_user_full(recipient_id, db)
-        if liker and recipient:
-            ice_breaker = await generate_icebreaker(
-                match_obj, liker, recipient, db
-            )
+        # Feature A : si l'un des deux a laissé un comment, il devient
+        # l'ice-breaker (priorité au comment du user_a = liker initial).
+        if match_obj.like_comment:
+            ice_breaker = match_obj.like_comment
+        else:
+            # Liker du prompt = user_a_id (celui qui a liké en premier)
+            # Le recipient = user courant
+            liker_id = match_obj.user_a_id
+            recipient_id = match_obj.user_b_id
+            liker = await _load_user_full(liker_id, db)
+            recipient = await _load_user_full(recipient_id, db)
+            if liker and recipient:
+                ice_breaker = await generate_icebreaker(
+                    match_obj, liker, recipient, db
+                )
 
     # 6. INCR quota (like effectif seulement)
     new_used = await _incr_daily_likes(user.id, redis_client)

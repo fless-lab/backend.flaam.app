@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     # Frontend (liens dans emails, WhatsApp teasers, QR event URLs)
     frontend_base_url: str = "https://flaam.app"
 
+    # App versioning (§27, GET /config/version)
+    app_min_version: str = "1.0.0"
+    app_current_version: str = "1.0.0"
+    app_force_update: bool = False
+    app_update_url: str = "https://play.google.com/store/apps/details?id=app.flaam"
+
     # Matching
     matching_batch_hour: int = 3
     matching_feed_size: int = 12

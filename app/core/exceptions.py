@@ -21,4 +21,10 @@ def register_exception_handlers(app: FastAPI) -> None:
             payload["user_message_fr"] = fr
         if en:
             payload["user_message_en"] = en
-        return JSONResponse(status_code=exc.status_code, content=payload)
+        # Rate limiter : propage Retry-After + X-RateLimit-* (§15).
+        headers = getattr(exc, "headers", None)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=payload,
+            headers=headers,
+        )

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
+from app.core.idempotency import IdempotencyMiddleware
 from app.db.redis import redis_pool
 from app.db.session import engine
 from app.ws.chat import router as ws_chat_router
@@ -44,6 +45,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# X-Idempotency-Key middleware (§34). Applique sur POST/PATCH/PUT/DELETE
+# quand l'header est présent. TTL Redis 24h.
+app.add_middleware(IdempotencyMiddleware)
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 # WebSocket chat (§5.8) — pas de préfixe API v1 : ws://host/ws/chat

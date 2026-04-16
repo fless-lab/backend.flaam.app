@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis
 from app.core.exceptions import AppException
+from app.core.rate_limiter import rate_limit
 from app.models.user import User
 from app.schemas.messages import (
     MeetupProposalBody,
@@ -65,6 +66,13 @@ async def unread_count(
     "/{match_id}",
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            rate_limit(
+                max_requests=60, window_seconds=60, name="messages_send"
+            )
+        )
+    ],
 )
 async def send(
     match_id: UUID,

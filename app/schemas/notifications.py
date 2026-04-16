@@ -12,6 +12,7 @@ class NotificationPreferencesBody(BaseModel):
     events: bool | None = None
     date_reminder: bool | None = None
     weekly_digest: bool | None = None
+    reply_reminders: bool | None = None
     daily_feed_hour: int | None = Field(default=None, ge=0, le=23)
     quiet_start_hour: int | None = Field(default=None, ge=0, le=23)
     quiet_end_hour: int | None = Field(default=None, ge=0, le=23)
@@ -24,6 +25,7 @@ class NotificationPreferencesResponse(BaseModel):
     events: bool
     date_reminder: bool
     weekly_digest: bool
+    reply_reminders: bool
     daily_feed_hour: int
     quiet_start_hour: int
     quiet_end_hour: int

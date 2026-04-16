@@ -3,7 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.v1.auth import router as auth_router
+from app.api.v1.behavior import router as behavior_router
 from app.api.v1.cities import router as cities_router
+from app.api.v1.config_api import router as config_router
+from app.api.v1.contacts import router as contacts_router
 from app.api.v1.events import router as events_router
 from app.api.v1.feed import router as feed_router
 from app.api.v1.invites import router as invites_router
@@ -13,6 +16,7 @@ from app.api.v1.notifications import router as notifications_router
 from app.api.v1.photos import router as photos_router
 from app.api.v1.profiles import router as profiles_router
 from app.api.v1.quartiers import router as quartiers_router
+from app.api.v1.safety import router as safety_router
 from app.api.v1.spots import router as spots_router
 from app.api.v1.subscriptions import router as subscriptions_router
 
@@ -30,3 +34,7 @@ api_router.include_router(messages_router)
 api_router.include_router(events_router)
 api_router.include_router(notifications_router)
 api_router.include_router(subscriptions_router)
+api_router.include_router(safety_router)
+api_router.include_router(contacts_router)
+api_router.include_router(behavior_router)
+api_router.include_router(config_router)

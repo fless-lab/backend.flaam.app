@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,18 @@ class Match(Base, UUIDMixin, TimestampMixin):
 
     status: Mapped[str] = mapped_column(String(20), default="pending")
     liked_prompt_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # ── Targeted like (Feature A, Session 9) ──
+    # Quand flag_targeted_likes_enabled est actif, POST /feed/{id}/like
+    # accepte target_type in {"profile","photo","prompt"}, target_id et
+    # comment. Le comment devient l'ice-breaker si présent.
+    like_target_type: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )
+    like_target_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )
+    like_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     matched_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
