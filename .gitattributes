@@ -1,0 +1,15 @@
+# Force LF on all text files to avoid CRLF noise on Windows checkouts.
+* text=auto eol=lf
+
+*.py          text eol=lf
+*.md          text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.toml        text eol=lf
+*.json        text eol=lf
+*.sh          text eol=lf
+*.env         text eol=lf
+.env*         text eol=lf
+Dockerfile    text eol=lf
+.gitignore    text eol=lf
+.dockerignore text eol=lf
