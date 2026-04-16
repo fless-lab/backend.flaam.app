@@ -12,6 +12,11 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.idempotency import IdempotencyMiddleware
+from app.core.middleware import (
+    RequestIDMiddleware,
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.db.redis import redis_pool
 from app.db.session import engine
 from app.ws.chat import router as ws_chat_router
@@ -38,6 +43,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Ordre requête (externe → interne) :
+#   RequestID → SecurityHeaders → RequestLogging → CORS → Idempotency
+# Starlette applique le DERNIER add_middleware en tant que PLUS EXTERNE,
+# donc on ajoute ici dans l'ordre INVERSE : le plus interne d'abord.
+
+# 1) Idempotency (innermost) — X-Idempotency-Key §34, TTL Redis 24h
+app.add_middleware(IdempotencyMiddleware)
+
+# 2) CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins.split(","),
@@ -46,9 +60,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# X-Idempotency-Key middleware (§34). Applique sur POST/PATCH/PUT/DELETE
-# quand l'header est présent. TTL Redis 24h.
-app.add_middleware(IdempotencyMiddleware)
+# 3) RequestLogging — log structuré method/path/status/duration
+app.add_middleware(RequestLoggingMiddleware)
+
+# 4) SecurityHeaders — §35.4
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 5) RequestID (outermost) — bind X-Request-ID dans structlog contextvars
+app.add_middleware(RequestIDMiddleware)
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 # WebSocket chat (§5.8) — pas de préfixe API v1 : ws://host/ws/chat

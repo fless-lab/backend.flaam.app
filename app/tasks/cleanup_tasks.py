@@ -22,15 +22,29 @@ async def purge_account_data(user_id: UUID, reason: str) -> None:
     """
     Pipeline RGPD Phase 1 — anonymisation et purge des données perso.
 
-    STUB. L'implémentation complète (§17) viendra en Session 10 :
-    - Phase 1 (immédiat) : anonymiser display_name, purger photos,
-      supprimer prompts/tags, couper matchs actifs
-    - Phase 2 (T+24h) : supprimer messages, signalements personnels
+    STUB. L'implémentation complète (§17) :
+    - Phase 1 (immédiat) : anonymiser display_name, marquer photos,
+      supprimer prompts/tags, couper matchs actifs — implémenté dans
+      app/services/gdpr_service.py::initiate_deletion
+    - Phase 2 (T+7j) : suppression physique des fichiers photos disque
     - Phase 3 (T+30j) : DROP de la row User (AccountHistory survit)
     """
     log.info(
         "gdpr_purge_scheduled",
         user_id=str(user_id),
         reason=reason,
-        note="stub — pipeline RGPD complet en Session 10",
+        note="phase 2/3 câblés en S11 (Celery Beat)",
     )
+
+
+async def downgrade_expired_subscriptions_task() -> None:
+    """
+    Stub Celery : parcourt les Subscriptions expirées et lance le gel
+    doux. Le câblage Celery viendra en S11 (Celery Beat daily).
+    """
+    from app.db.session import async_session
+    from app.services import subscription_service
+
+    async with async_session() as db:
+        result = await subscription_service.downgrade_expired_subscriptions(db)
+    log.info("cleanup_downgrade_task_finished", **result)

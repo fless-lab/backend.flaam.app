@@ -65,6 +65,21 @@ class Settings(BaseSettings):
     # pending modération asynchrone (§17).
     selfie_liveness_required: bool = False
 
+    # Photo moderation pipeline (§16.1b)
+    # Modes : manual | onnx | external | off
+    #   - manual   : photo reste pending jusqu'à action admin (MVP Lomé)
+    #   - onnx     : worker Celery, modèles NSFW + face detection locaux
+    #   - external : API tierce (Sightengine / Google Vision)
+    #   - off      : auto-approve (tests/dev uniquement)
+    photo_moderation_mode: str = "manual"
+    nsfw_model_path: str = "/models/nsfw_detector.onnx"
+    face_model_path: str = "/models/yunet_face.onnx"
+    nsfw_threshold_reject: float = 0.7
+    nsfw_threshold_review: float = 0.4
+    sightengine_user: str = ""
+    sightengine_secret: str = ""
+    sightengine_models: str = "nudity-2.0,face-attributes"
+
     # SMS (Termii — unique provider au MVP)
     termii_api_key: str = ""
     termii_sender_id: str = "Flaam"

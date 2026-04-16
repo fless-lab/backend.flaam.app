@@ -61,7 +61,11 @@ from app.schemas.events import (
     EventPreregisterVerifyBody,
     EventPreregisterVerifyResponse,
 )
-from app.services import auth_service, event_preregistration_service
+from app.services import (
+    auth_service,
+    event_preregistration_service,
+    gdpr_service,
+)
 from app.services.abuse_prevention_service import update_history_on_deletion
 from app.tasks.cleanup_tasks import purge_account_data
 from app.utils.phone import (
@@ -150,11 +154,14 @@ async def delete_account(
     user: User = Depends(get_current_user),
 ) -> Response:
     """
-    Soft delete (§17 RGPD) :
-    1. Marque User.is_deleted + deleted_at
-    2. Met à jour AccountHistory (total_accounts_deleted, last_departure_reason…)
-    3. Révoque tous les refresh tokens de l'user dans Redis
-    4. Planifie la tâche Celery de purge RGPD (stub pour l'instant)
+    Soft delete (§17 RGPD, pipeline 3 phases) :
+    1. Marque User.is_deleted + deleted_at + is_active=False + is_visible=False
+    2. Met à jour AccountHistory (anti-récidive : total_accounts_deleted,
+       last_departure_reason, device_fingerprints, risk_score)
+    3. Phase 1 : anonymise profile, marque photos is_deleted, clôt matches
+    4. Commit + purge Redis (feed/behavior/implicit_prefs)
+    5. Révoque tous les refresh tokens de l'user
+    6. Planifie Phase 2 (J+7, purge fichiers) et Phase 3 (J+30, DROP row)
     """
     if not body.confirm:
         raise AppException(
@@ -165,6 +172,10 @@ async def delete_account(
     reason = body.reason or "user_deleted"
     now = datetime.now(timezone.utc)
 
+    if user.is_deleted:
+        log.info("account_delete_already_done", user_id=str(user.id))
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     user.is_deleted = True
     user.deleted_at = now
     user.is_active = False
@@ -173,12 +184,20 @@ async def delete_account(
     device_fp = user.devices[0].device_fingerprint if user.devices else None
 
     await update_history_on_deletion(user, reason, device_fp, db)
+    summary = await gdpr_service.apply_phase1_db_changes(user, db)
     await db.commit()
 
+    await gdpr_service.purge_user_redis_keys(user.id, redis)
     await auth_service.revoke_all_user_tokens(str(user.id), redis)
     await purge_account_data(user.id, reason)
 
-    log.info("account_delete_requested", user_id=str(user.id), reason=reason)
+    log.info(
+        "account_delete_requested",
+        user_id=str(user.id),
+        reason=reason,
+        photos_marked=summary["photos_marked"],
+        matches_closed=summary["matches_closed"],
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

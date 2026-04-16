@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from app.api.v1.admin import router as admin_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.behavior import router as behavior_router
 from app.api.v1.cities import router as cities_router
@@ -38,3 +39,4 @@ api_router.include_router(safety_router)
 api_router.include_router(contacts_router)
 api_router.include_router(behavior_router)
 api_router.include_router(config_router)
+api_router.include_router(admin_router)

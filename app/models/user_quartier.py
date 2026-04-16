@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, Index, String
+from sqlalchemy import Boolean, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +23,11 @@ class UserQuartier(Base, UUIDMixin, TimestampMixin):
 
     relation_type: Mapped[str] = mapped_column(String(15), nullable=False)
     is_primary: Mapped[bool] = mapped_column(default=False)
+    # Gel doux premium → False désactive l'entrée pour le matching sans la
+    # supprimer (spec §business-model : premium expiré = gel, pas suppression).
+    is_active_in_matching: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
 
     user = relationship("User", back_populates="user_quartiers")
     quartier = relationship("Quartier", lazy="selectin")

@@ -38,6 +38,7 @@ from app.core.exceptions import AppException
 from app.core.onboarding import advance_onboarding, compute_completeness
 from app.models.photo import Photo
 from app.models.user import User
+from app.services import photo_moderation_service
 
 
 async def _fetch_user_photos(user: User, db: AsyncSession) -> list[Photo]:
@@ -228,12 +229,20 @@ async def upload_photo(
     await db.commit()
     await db.refresh(photo)
 
+    # Pipeline modération (§16.1b). Appel direct sync : le dispatcher
+    # décide du mode (manual/onnx/external/off). Les modes asynchrones
+    # enqueuent une task Celery ; "manual" est no-op.
+    await photo_moderation_service.moderate_photo(photo.id, db)
+    await db.commit()
+    await db.refresh(photo)
+
     log.info(
         "photo_uploaded",
         user_id=str(user.id),
         photo_id=str(photo.id),
         size=size_bytes,
         hash=content_hash[:12],
+        moderation_status=photo.moderation_status,
     )
     return photo
 

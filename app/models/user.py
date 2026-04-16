@@ -28,6 +28,12 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     ban_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Admin flag — jamais modifiable via endpoint utilisateur.
+    # Promotion manuelle via psql ou script seed uniquement.
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
     # Soft-delete RGPD (§17). `deleted_at` set ⇒ pipeline RGPD déclenché.
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     deleted_at: Mapped[datetime | None] = mapped_column(

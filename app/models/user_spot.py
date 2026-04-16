@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,6 +35,11 @@ class UserSpot(Base, UUIDMixin, TimestampMixin):
     fidelity_level: Mapped[str] = mapped_column(String(20), default="declared")
     fidelity_score: Mapped[float] = mapped_column(Float, default=0.5)
     is_visible: Mapped[bool] = mapped_column(default=True)
+    # Gel doux premium → False désactive le spot du matching sans le
+    # supprimer (spec §business-model).
+    is_active_in_matching: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
 
     user = relationship("User", back_populates="user_spots")
     spot = relationship("Spot", lazy="selectin")

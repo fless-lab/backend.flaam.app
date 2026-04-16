@@ -197,6 +197,13 @@ async def update_profile(
         db.add(profile)
         user.profile = profile
     else:
+        # Le genre est verrouillé après l'onboarding (principe produit
+        # sécurité §CLAUDE.md). Seul un admin peut le modifier via
+        # PATCH /admin/users/{id}/gender, ce qui invalide le selfie.
+        if "gender" in data and data["gender"] != profile.gender:
+            raise AppException(
+                status.HTTP_400_BAD_REQUEST, "gender_not_modifiable"
+            )
         for field, value in data.items():
             setattr(profile, field, value)
 

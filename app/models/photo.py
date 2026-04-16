@@ -34,6 +34,12 @@ class Photo(Base, UUIDMixin, TimestampMixin):
     moderation_score: Mapped[float | None] = mapped_column(nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
+    # Soft delete RGPD (§17 Phase 1). La row reste en base pendant 30 j,
+    # le fichier physique est purgé par la Phase 2 Celery (T+7).
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
     # Couleur dominante en hex (#RRGGBB) — placeholder pendant le chargement
     # progressif côté mobile (§30 cache strategy).
     dominant_color: Mapped[str | None] = mapped_column(String(7), nullable=True)

@@ -74,6 +74,16 @@ TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
             "body": "{count} people liked you this week.",
         },
     },
+    "selfie_reverify_required": {
+        "fr": {
+            "title": "Vérification à refaire",
+            "body": "Ton genre a été mis à jour. Refais ton selfie pour continuer.",
+        },
+        "en": {
+            "title": "Re-verification needed",
+            "body": "Your gender was updated. Please retake your selfie to continue.",
+        },
+    },
 }
 
 
@@ -161,6 +171,7 @@ _TYPE_TO_PREF_FIELD: dict[str, str | None] = {
     "new_message": "new_message",
     "event_reminder": "events",
     "likes_received_count": None,  # Toujours envoyé (pas de flag dédié)
+    "selfie_reverify_required": None,  # Safety/compliance — bypass prefs
 }
 
 

@@ -100,7 +100,10 @@ async def _load_candidates_quartiers(
     """
     if not candidate_ids:
         return {}
-    stmt = select(UserQuartier).where(UserQuartier.user_id.in_(candidate_ids))
+    stmt = select(UserQuartier).where(
+        UserQuartier.user_id.in_(candidate_ids),
+        UserQuartier.is_active_in_matching.is_(True),
+    )
     rows = await db_session.execute(stmt)
     out: dict[UUID, dict[UUID, str]] = {}
     for uq in rows.scalars():
@@ -119,7 +122,10 @@ async def _load_candidates_spots(
     stmt = (
         select(UserSpot)
         .options(selectinload(UserSpot.spot))
-        .where(UserSpot.user_id.in_(candidate_ids))
+        .where(
+            UserSpot.user_id.in_(candidate_ids),
+            UserSpot.is_active_in_matching.is_(True),
+        )
     )
     rows = await db_session.execute(stmt)
     out: dict[UUID, dict[UUID, UserSpot]] = {}
@@ -294,9 +300,11 @@ async def compute_geo_scores(
     if not candidate_ids:
         return {}
 
-    # Données user
+    # Données user — filtrées par is_active_in_matching (gel doux premium)
     user_quartiers = {
-        uq.quartier_id: uq.relation_type for uq in (user.user_quartiers or [])
+        uq.quartier_id: uq.relation_type
+        for uq in (user.user_quartiers or [])
+        if uq.is_active_in_matching
     }
     user_physical = {
         qid: rt for qid, rt in user_quartiers.items() if rt != "interested"
@@ -304,7 +312,11 @@ async def compute_geo_scores(
     user_interested = {
         qid: rt for qid, rt in user_quartiers.items() if rt == "interested"
     }
-    user_spots = {us.spot_id: us for us in (user.user_spots or [])}
+    user_spots = {
+        us.spot_id: us
+        for us in (user.user_spots or [])
+        if us.is_active_in_matching
+    }
 
     # Données candidats (batch)
     cand_quartiers = await _load_candidates_quartiers(candidate_ids, db_session)

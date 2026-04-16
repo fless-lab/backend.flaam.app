@@ -305,14 +305,16 @@ async def process_successful_payment(
         sub.is_auto_renew = True
         sub.cancelled_at = None
 
-    user.is_premium = True
-
     payment.status = "success"
     payment.subscription_id = sub.id
     payment.completed_at = now
     payment.webhook_payload = webhook_payload
 
-    await db.commit()
+    # Premium actif → on réactive tous les quartiers/spots gelés (gel doux
+    # réversible) et on passe is_premium=True. Fait aussi le commit.
+    from app.services import subscription_service
+
+    await subscription_service.upgrade_user_limits(user, db)
     await db.refresh(sub)
 
     log.info(
