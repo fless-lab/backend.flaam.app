@@ -1,0 +1,47 @@
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.1
+GeoAlchemy2==0.15.2
+
+# Redis
+redis[hiredis]==5.2.1
+
+# Celery
+celery[redis]==5.4.0
+
+# Settings
+pydantic-settings==2.7.1
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Logging
+structlog==24.4.0
+
+# HTTP client
+httpx==0.28.1
+
+# SMS / Push / Storage
+boto3==1.35.86
+
+# Image processing
+Pillow==11.1.0
+
+# Sentry
+sentry-sdk[fastapi]==2.19.2
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.0
+httpx==0.28.1
+
+# Dev
+uvloop==0.21.0; sys_platform != "win32"
+httptools==0.6.4
