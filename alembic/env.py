@@ -20,17 +20,35 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-EXCLUDE_TABLES = {
-    "spatial_ref_sys", "topology", "layer",
+# PostGIS / tiger_geocoder / topology tables présentes dans la DB par
+# l'image postgis/postgis. Elles arrivent avec object.schema=None à cause
+# de search_path, d'où le filtrage par nom.
+POSTGIS_TABLES = {
+    # postgis core
+    "spatial_ref_sys",
+    # postgis_topology
+    "topology", "layer",
+    # postgis_tiger_geocoder — référence
+    "addr", "addrfeat", "bg", "county", "county_lookup", "countysub_lookup",
+    "cousub", "direction_lookup", "edges", "faces", "featnames",
     "geocode_settings", "geocode_settings_default",
+    "loader_lookuptables", "loader_platform", "loader_variables",
+    "pagc_gaz", "pagc_lex", "pagc_rules",
+    "place", "place_lookup", "secondary_unit_lookup",
+    "state", "state_lookup", "street_type_lookup",
+    "tabblock", "tabblock20", "tract",
+    "zcta5", "zip_lookup", "zip_lookup_all", "zip_lookup_base",
+    "zip_state", "zip_state_loc",
 }
 
 
 def include_object(object, name, type_, reflected, compare_to):
-    if type_ == "table":
-        if object.schema in ("tiger", "tiger_data", "topology"):
-            return False
-        if name in EXCLUDE_TABLES:
+    if type_ == "table" and name in POSTGIS_TABLES:
+        return False
+    # On filtre aussi les index portés par ces tables
+    if type_ == "index" and compare_to is None:
+        table_name = getattr(getattr(object, "table", None), "name", None)
+        if table_name in POSTGIS_TABLES:
             return False
     return True
 
@@ -43,7 +61,6 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_object=include_object,
-        include_schemas=True,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -54,7 +71,6 @@ def do_run_migrations(connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         include_object=include_object,
-        include_schemas=True,
     )
     with context.begin_transaction():
         context.run_migrations()
