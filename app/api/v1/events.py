@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+"""Routes Events (§5.9 + MàJ 8 Porte 3)."""
+
+from datetime import datetime
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.dependencies import get_current_user, get_db
+from app.models.user import User
+from app.schemas.events import (
+    EventCheckinBody,
+    EventCheckinResponse,
+    EventDetailResponse,
+    EventListResponse,
+    EventRegisterResponse,
+    EventStatsResponse,
+    EventUnregisterResponse,
+    MatchesPreviewResponse,
+)
+from app.services import event_service
+
+router = APIRouter(prefix="/events", tags=["events"])
+
+
+@router.get("", response_model=EventListResponse)
+async def list_events(
+    city_id: UUID | None = Query(default=None),
+    from_date: datetime | None = Query(default=None, alias="from"),
+    to_date: datetime | None = Query(default=None, alias="to"),
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    events = await event_service.list_events(
+        city_id=city_id, from_date=from_date, to_date=to_date, db=db
+    )
+    return {"events": events}
+
+
+@router.get("/{event_id}/stats", response_model=EventStatsResponse)
+async def event_stats(
+    event_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Public : stats anonymes pour la page web event (page Porte 3)."""
+    return await event_service.get_event_stats(event_id, db)
+
+
+@router.get(
+    "/{event_id}/matches-preview", response_model=MatchesPreviewResponse
+)
+async def event_matches_preview(
+    event_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await event_service.matches_preview(event_id, user, db)
+
+
+@router.get("/{event_id}", response_model=EventDetailResponse)
+async def event_detail(
+    event_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await event_service.get_event_detail(event_id, user, db)
+
+
+@router.post("/{event_id}/register", response_model=EventRegisterResponse)
+async def register_event(
+    event_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await event_service.register_to_event(event_id, user, db)
+
+
+@router.delete(
+    "/{event_id}/register", response_model=EventUnregisterResponse
+)
+async def unregister_event(
+    event_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await event_service.unregister_from_event(event_id, user, db)
+
+
+@router.post(
+    "/{event_id}/checkin",
+    response_model=EventCheckinResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def checkin_event(
+    event_id: UUID,
+    body: EventCheckinBody,
+    _staff: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Check-in QR à l'entrée de l'event.
+    Au MVP : n'importe quel user authentifié peut scanner (c'est le
+    device staff qui utilise son propre compte Flaam). Le rôle staff
+    dédié viendra en Session 10.
+    """
+    return await event_service.checkin_event(event_id, body.qr_code, db)
+
+
+__all__ = ["router"]

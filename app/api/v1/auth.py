@@ -55,7 +55,13 @@ from app.schemas.auth import (
     SimpleMessage,
     VerifyEmailBody,
 )
-from app.services import auth_service
+from app.schemas.events import (
+    EventPreregisterBody,
+    EventPreregisterResponse,
+    EventPreregisterVerifyBody,
+    EventPreregisterVerifyResponse,
+)
+from app.services import auth_service, event_preregistration_service
 from app.services.abuse_prevention_service import update_history_on_deletion
 from app.tasks.cleanup_tasks import purge_account_data
 from app.utils.phone import (
@@ -430,6 +436,42 @@ async def phone_change_set_new(
         is_new_user=False,
         user_id=user.id,
     )
+
+
+# ── Event pre-registration (Porte 3, public) ─────────────────────────
+
+@router.post(
+    "/event-preregister", response_model=EventPreregisterResponse
+)
+async def event_preregister(
+    body: EventPreregisterBody,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> EventPreregisterResponse:
+    result = await event_preregistration_service.request_preregister_otp(
+        body.phone, body.event_id, db, redis
+    )
+    return EventPreregisterResponse(**result)
+
+
+@router.post(
+    "/event-preregister/verify",
+    response_model=EventPreregisterVerifyResponse,
+)
+async def event_preregister_verify(
+    body: EventPreregisterVerifyBody,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> EventPreregisterVerifyResponse:
+    result = await event_preregistration_service.verify_preregister_otp(
+        phone=body.phone,
+        code=body.code,
+        event_id=body.event_id,
+        first_name=body.first_name,
+        db=db,
+        redis=redis,
+    )
+    return EventPreregisterVerifyResponse(**result)
 
 
 __all__ = ["router"]

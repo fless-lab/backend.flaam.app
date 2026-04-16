@@ -44,6 +44,17 @@ class Event(Base, UUIDMixin, TimestampMixin):
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Lifecycle : draft → published → full → ongoing → completed | cancelled
+    # (MàJ 8 Porte 3). `full` est calculé lors du register quand
+    # current_attendees atteint max_attendees.
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="draft", server_default="draft"
+    )
+    # Slug stable pour la page web publique flaam.app/events/{slug}
+    slug: Mapped[str | None] = mapped_column(
+        String(120), unique=True, nullable=True, index=True
+    )
+
     spot = relationship("Spot", lazy="selectin")
     registrations = relationship(
         "EventRegistration", back_populates="event", lazy="selectin"

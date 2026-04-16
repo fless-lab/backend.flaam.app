@@ -79,6 +79,27 @@ class User(Base, UUIDMixin, TimestampMixin):
     # ── Recovery email (peut différer de l'email principal) ──
     recovery_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # ── Onboarding source (MàJ 8 — 3 portes d'entrée) ──
+    # classic : Play Store direct (porte 1)
+    # invite  : code d'invitation (porte 2)
+    # event   : pré-inscription via page web event (porte 3, ghost user)
+    onboarding_source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="classic", server_default="classic"
+    )
+    # L'event qui a amené ce user (porte 3 uniquement, sinon null).
+    source_event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "events.id",
+            name="fk_users_source_event_id",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
+    # first_name : utilisé uniquement pour les ghost users (Porte 3).
+    # Après conversion, c'est Profile.display_name qui fait foi.
+    first_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     city = relationship("City", lazy="selectin")
     profile = relationship(
         "Profile", back_populates="user", uselist=False, lazy="selectin"

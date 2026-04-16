@@ -49,6 +49,7 @@ from app.services.matching_engine.corrections import (
     inject_wildcards,
     shuffle_feed,
 )
+from app.services.matching_engine.event_boost import compute_event_boosts
 from app.services.matching_engine.first_impression import apply_first_impression
 from app.services.matching_engine.geo_scorer import (
     compute_geo_scores,
@@ -151,6 +152,19 @@ async def generate_feed_for_user(
     geo_scores = await compute_geo_scores(
         user, candidate_ids, config, db_session
     )
+
+    # ── Event boost (MàJ 8 Porte 3 §5) ────────────────────────────────
+    # Ajout post-L2 : +0..15 points (sur échelle 0-100) pour les
+    # candidats qui étaient au même event récent que l'utilisateur.
+    # Les scores géo sont exprimés en [0, 1] ici, donc le boost est
+    # divisé par 100 et clampé à 1.0.
+    event_boosts = await compute_event_boosts(
+        user.id, candidate_ids, db_session
+    )
+    if event_boosts:
+        for cid, bonus_pts in event_boosts.items():
+            base = geo_scores.get(cid, 0.0)
+            geo_scores[cid] = min(1.0, base + (bonus_pts / 100.0))
 
     # ── L3 + ajustement implicite ─────────────────────────────────────
     lifestyle_scores = await compute_lifestyle_scores(

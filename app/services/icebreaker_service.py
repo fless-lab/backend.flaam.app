@@ -43,6 +43,7 @@ from app.models.user_spot import UserSpot
 # ── Types stables (contrat d'entrée LLM future) ──────────────────────
 
 PriorityKind = Literal[
+    "same_event",
     "prompt_liked",
     "spot_common_high",
     "spot_common_low",
@@ -74,11 +75,21 @@ class LikedPrompt:
 
 
 @dataclass
+class SharedEvent:
+    """Event récent (<14j) fréquenté par les deux users (checked_in/converted)."""
+
+    event_id: UUID
+    event_name: str
+    days_ago: int
+
+
+@dataclass
 class MatchContext:
     """Snapshot des signaux du match, indépendant du rendu."""
 
     liker_display_name: str
     recipient_lang: str  # "fr" | "en"
+    shared_event: SharedEvent | None = None
     liked_prompt: LikedPrompt | None = None
     common_spots_high: list[CommonSpot] = field(default_factory=list)
     common_spots_low: list[CommonSpot] = field(default_factory=list)
@@ -122,6 +133,11 @@ FIDELITY_HIGH_THRESHOLD = 2  # ≥ "regular"
 
 TEMPLATES: dict[str, dict[str, list[str]]] = {
     "fr": {
+        "same_event": [
+            "🎉 Vous étiez tous les deux au {event_name}. Qu'est-ce que tu en as pensé ?",
+            "🎉 {event_name} — vous y étiez tous les deux ! C'était comment pour toi ?",
+            "🎉 Le {event_name}, c'était bien ? Vous y étiez tous les deux !",
+        ],
         "prompt_liked": [
             "💬 {liker} a aimé ta réponse à « {question} ». Raconte-lui en plus !",
             "💬 Ta réponse à « {question} » a attiré l'attention de {liker}. À vous de jouer !",
@@ -153,6 +169,10 @@ TEMPLATES: dict[str, dict[str, list[str]]] = {
         ],
     },
     "en": {
+        "same_event": [
+            "🎉 You were both at {event_name}. What did you think?",
+            "🎉 {event_name} — you were both there! How was it for you?",
+        ],
         "prompt_liked": [
             "💬 {liker} liked your answer to '{question}'. Tell them more!",
             "💬 Your answer to '{question}' caught {liker}'s eye. Your move!",
@@ -294,6 +314,18 @@ async def extract_match_context(
     """
     rare = rare_tags if rare_tags is not None else RARE_TAGS_DEFAULT
 
+    # Event partagé (<14j, both checked_in/converted). Priorité 0.
+    from app.services.matching_engine.event_boost import find_shared_recent_event
+
+    shared = await find_shared_recent_event(liker.id, recipient.id, db)
+    shared_event: SharedEvent | None = None
+    if shared is not None:
+        shared_event = SharedEvent(
+            event_id=shared["event_id"],
+            event_name=shared["event_name"],
+            days_ago=shared["days_ago"],
+        )
+
     liker_profile = liker.profile
     recipient_profile = recipient.profile
     if liker_profile is None or recipient_profile is None:
@@ -301,6 +333,7 @@ async def extract_match_context(
         return MatchContext(
             liker_display_name=liker.id.hex[:6],
             recipient_lang=recipient.language or "fr",
+            shared_event=shared_event,
         )
 
     liked_prompt = _find_liked_prompt(match, recipient_profile.prompts or [])
@@ -326,6 +359,7 @@ async def extract_match_context(
     return MatchContext(
         liker_display_name=liker_profile.display_name,
         recipient_lang=lang,
+        shared_event=shared_event,
         liked_prompt=liked_prompt,
         common_spots_high=common_spots_high,
         common_spots_low=common_spots_low,
@@ -344,11 +378,25 @@ def select_priority(
     ctx: MatchContext, *, rng: random.Random | None = None
 ) -> PrioritySelection:
     """
-    Étape 2 — applique la hiérarchie 1-7. Pure fonction.
+    Étape 2 — applique la hiérarchie 0-7. Pure fonction.
+
+    Niveau 0 (MàJ 8 Porte 3) : un event en commun est le signal le plus
+    fort possible — il passe devant le prompt liked.
 
     `rng` permet de rendre le choix déterministe dans les tests.
     """
     r = rng or random
+
+    # 0. same_event
+    if ctx.shared_event is not None:
+        return PrioritySelection(
+            level=0,
+            kind="same_event",
+            payload={
+                "event_name": ctx.shared_event.event_name,
+                "days_ago": ctx.shared_event.days_ago,
+            },
+        )
 
     # 1. prompt_liked
     if ctx.liked_prompt is not None:
@@ -459,6 +507,7 @@ __all__ = [
     "CommonSpot",
     "CommonQuartier",
     "LikedPrompt",
+    "SharedEvent",
     "MatchContext",
     "PrioritySelection",
     "RARE_TAGS_DEFAULT",

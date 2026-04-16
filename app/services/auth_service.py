@@ -294,6 +294,26 @@ async def verify_otp(
         user.is_phone_verified = True
         user.last_active_at = datetime.now(timezone.utc)
 
+    # MàJ 8 — Porte 3 : détection ghost user.
+    # Si un user existant est ghost/pre_registered, c'est sa première
+    # connexion dans l'app → on promeut à "city_selection" et on construit
+    # le payload ghost_data.
+    is_ghost_conversion = False
+    ghost_data: dict | None = None
+    if (
+        not is_new_user
+        and user is not None
+        and user.onboarding_step in ("ghost", "pre_registered")
+    ):
+        from app.services.event_preregistration_service import (
+            build_ghost_conversion_payload,
+            promote_ghost_on_conversion,
+        )
+
+        is_ghost_conversion = True
+        ghost_data = await build_ghost_conversion_payload(user, db)
+        await promote_ghost_on_conversion(user, db)
+
     # Flush pour obtenir l'id (si nouveau user)
     await db.flush()
 
@@ -319,9 +339,13 @@ async def verify_otp(
         "expires_in": settings.jwt_access_token_expire_minutes * 60,
         "is_new_user": is_new_user,
         "user_id": user.id,
-        "onboarding_step": user.onboarding_step if is_new_user else None,
+        "onboarding_step": (
+            user.onboarding_step if (is_new_user or is_ghost_conversion) else None
+        ),
         "restriction": restriction_info["restriction"] if restriction_info else None,
         "mfa_required": mfa_required,
+        "is_ghost_conversion": is_ghost_conversion,
+        "ghost_data": ghost_data,
     }
 
 

@@ -77,12 +77,22 @@ class Settings(BaseSettings):
     rate_limit_otp_per_window: int = 3
     rate_limit_otp_window_seconds: int = 600
 
-    # Payment
+    # Payment (Paystack)
     paystack_secret_key: str = ""
     paystack_webhook_secret: str = ""
+    paystack_base_url: str = "https://api.paystack.co"
+    # En dev : initialize_payment retourne une fausse URL et le endpoint
+    # POST /subscriptions/webhook/simulate est exposé. En prod : 404.
+    paystack_simulate: bool = True
 
-    # FCM
+    # FCM (Firebase Cloud Messaging)
     fcm_service_account_json: str = ""
+    # Au MVP : FCM_ENABLED=false → send_push log seulement, pas d'appel réseau.
+    fcm_enabled: bool = False
+    firebase_project_id: str = ""
+
+    # Frontend (liens dans emails, WhatsApp teasers, QR event URLs)
+    frontend_base_url: str = "https://flaam.app"
 
     # Matching
     matching_batch_hour: int = 3

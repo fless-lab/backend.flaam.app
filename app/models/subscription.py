@@ -40,8 +40,12 @@ class Subscription(Base, UUIDMixin, TimestampMixin):
         DateTime(timezone=True), nullable=False
     )
 
-    is_auto_renew: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_auto_renew: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
     cancelled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -38,6 +38,15 @@ class OtpVerifyBody(BaseModel):
     os_version: str | None = Field(default=None, max_length=30)
 
 
+class GhostConversionData(BaseModel):
+    first_name: str | None = None
+    onboarding_source: str = "event"
+    event_name: str | None = None
+    event_spot_id: str | None = None
+    suggested_tags: list[str] = []
+    attendees_completed: int = 0
+
+
 class AuthTokenResponse(BaseModel):
     access_token: str
     refresh_token: str
@@ -48,6 +57,10 @@ class AuthTokenResponse(BaseModel):
     onboarding_step: str | None = None
     restriction: str | None = None
     mfa_required: bool = False
+    # MàJ 8 Porte 3 — quand un ghost user fait son OTP dans l'app, on
+    # remonte les données pré-remplies pour accélérer l'onboarding.
+    is_ghost_conversion: bool = False
+    ghost_data: GhostConversionData | None = None
 
 
 class RefreshTokenBody(BaseModel):
@@ -121,6 +134,7 @@ __all__ = [
     "OtpResponse",
     "OtpResendBody",
     "OtpVerifyBody",
+    "GhostConversionData",
     "AuthTokenResponse",
     "RefreshTokenBody",
     "AddEmailBody",

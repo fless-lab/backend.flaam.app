@@ -101,6 +101,50 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
+# ── Event QR codes (MàJ 8 Porte 3) ───────────────────────────────────
+
+def sign_event_qr(event_id: UUID | str, user_id: UUID | str) -> str:
+    """
+    Génère un QR code signé pour le check-in event.
+
+    Format : "{event_id}:{user_id}:{signature_hex16}"
+    La signature est un HMAC-SHA256 tronqué à 16 chars hex (64 bits)
+    — assez pour empêcher un brute force online.
+    """
+    msg = f"{event_id}:{user_id}".encode()
+    sig = hmac.new(
+        settings.secret_key.encode(), msg, hashlib.sha256
+    ).hexdigest()[:16]
+    return f"{event_id}:{user_id}:{sig}"
+
+
+def verify_event_qr(token: str) -> tuple[str, str] | None:
+    """
+    Vérifie un QR event. Retourne (event_id, user_id) ou None.
+    Timing-safe via hmac.compare_digest.
+    """
+    if not token:
+        return None
+    parts = token.split(":")
+    if len(parts) != 3:
+        return None
+    event_id, user_id, sig = parts
+    if not sig:
+        return None
+    msg = f"{event_id}:{user_id}".encode()
+    expected = hmac.new(
+        settings.secret_key.encode(), msg, hashlib.sha256
+    ).hexdigest()[:16]
+    if not hmac.compare_digest(expected, sig):
+        return None
+    return event_id, user_id
+
+
+def qr_code_hash(token: str) -> str:
+    """SHA-256 hex du QR token, pour stockage/idempotence en base."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 # ── Sanitization texte (spec §16) ────────────────────────────────────
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -134,6 +178,9 @@ __all__ = [
     "generate_otp",
     "generate_recovery_token",
     "verify_paystack_signature",
+    "sign_event_qr",
+    "verify_event_qr",
+    "qr_code_hash",
     "sanitize_text",
     "validate_display_name",
 ]
