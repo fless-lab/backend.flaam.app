@@ -11,11 +11,12 @@ fallback tolérant : s'il est présent, il doit correspondre au
 from uuid import UUID
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, File, Form, Header, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis
 from app.core.exceptions import AppException
+from app.core.i18n import detect_lang
 from app.core.rate_limiter import rate_limit
 from app.models.user import User
 from app.schemas.messages import (
@@ -45,21 +46,27 @@ def _ensure_header_matches(
 @router.get("/{match_id}", response_model=MessageListResponse)
 async def list_messages(
     match_id: UUID,
+    request: Request,
     cursor: str | None = None,
     limit: int = 20,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await chat_service.get_messages(match_id, user, cursor, limit, db)
+    lang = detect_lang(request)
+    return await chat_service.get_messages(
+        match_id, user, cursor, limit, db, lang=lang
+    )
 
 
 @router.get("/{match_id}/unread-count", response_model=UnreadCountResponse)
 async def unread_count(
     match_id: UUID,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await chat_service.get_unread_count(match_id, user, db)
+    lang = detect_lang(request)
+    return await chat_service.get_unread_count(match_id, user, db, lang=lang)
 
 
 @router.post(
@@ -77,12 +84,14 @@ async def unread_count(
 async def send(
     match_id: UUID,
     body: SendMessageBody,
+    request: Request,
     x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
     _ensure_header_matches(x_idempotency_key, body.client_message_id)
+    lang = detect_lang(request)
     return await chat_service.send_message(
         match_id=match_id,
         sender=user,
@@ -90,6 +99,7 @@ async def send(
         client_message_id=body.client_message_id,
         db=db,
         redis=redis,
+        lang=lang,
     )
 
 
@@ -100,6 +110,7 @@ async def send(
 )
 async def send_voice_msg(
     match_id: UUID,
+    request: Request,
     client_message_id: str = Form(..., min_length=1, max_length=64),
     file: UploadFile = File(...),
     x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
@@ -108,6 +119,7 @@ async def send_voice_msg(
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
     _ensure_header_matches(x_idempotency_key, client_message_id)
+    lang = detect_lang(request)
     return await chat_service.send_voice(
         match_id=match_id,
         sender=user,
@@ -115,6 +127,7 @@ async def send_voice_msg(
         client_message_id=client_message_id,
         db=db,
         redis=redis,
+        lang=lang,
     )
 
 
@@ -126,12 +139,14 @@ async def send_voice_msg(
 async def send_meetup(
     match_id: UUID,
     body: MeetupProposalBody,
+    request: Request,
     x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
     _ensure_header_matches(x_idempotency_key, body.client_message_id)
+    lang = detect_lang(request)
     return await chat_service.propose_meetup(
         match_id=match_id,
         sender=user,
@@ -142,6 +157,7 @@ async def send_meetup(
         client_message_id=body.client_message_id,
         db=db,
         redis=redis,
+        lang=lang,
     )
 
 
@@ -149,9 +165,11 @@ async def send_meetup(
 async def respond_meetup_msg(
     message_id: UUID,
     body: MeetupResponseBody,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    lang = detect_lang(request)
     return await chat_service.respond_meetup(
         message_id=message_id,
         responder=user,
@@ -159,6 +177,7 @@ async def respond_meetup_msg(
         counter_date=body.counter_date,
         counter_time=body.counter_time,
         db=db,
+        lang=lang,
     )
 
 
@@ -166,16 +185,19 @@ async def respond_meetup_msg(
 async def mark_messages_read(
     match_id: UUID,
     body: ReadReceiptBody,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
+    lang = detect_lang(request)
     return await chat_service.mark_read(
         match_id=match_id,
         user=user,
         last_read_message_id=body.last_read_message_id,
         db=db,
         redis=redis,
+        lang=lang,
     )
 
 

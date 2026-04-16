@@ -16,8 +16,10 @@ Routes Profiles (§5.2, §13).
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.i18n import detect_lang
 
 from app.core.config import get_settings
 from app.core.dependencies import get_current_user, get_db
@@ -55,11 +57,14 @@ async def get_me(
 @router.put("/me", response_model=MyProfileResponse)
 async def update_me(
     body: UpdateProfileBody,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     payload = body.model_dump(exclude_unset=True)
-    return await profile_service.update_profile(user, payload, db)
+    return await profile_service.update_profile(
+        user, payload, db, lang=detect_lang(request)
+    )
 
 
 @router.get("/me/completeness", response_model=CompletenessResponse)
@@ -158,10 +163,13 @@ async def upload_selfie(
 @router.get("/{user_id}", response_model=OtherProfileResponse)
 async def get_other(
     user_id: UUID,
+    request: Request,
     _me: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await profile_service.get_other_profile(user_id, db)
+    return await profile_service.get_other_profile(
+        user_id, db, lang=detect_lang(request)
+    )
 
 
 __all__ = ["router"]

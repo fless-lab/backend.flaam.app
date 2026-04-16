@@ -109,8 +109,8 @@ async def test_send_message_blocks_insult(client, db_session, redis_client):
     )
     assert resp.status_code == 400
     body = resp.json()
-    assert body["detail"] == "insult"
-    assert body.get("user_message_fr")
+    assert body["error"] == "message_blocked_insult"
+    assert body.get("message")
 
 
 async def test_send_message_blocks_link_first_message(client, db_session, redis_client):
@@ -128,7 +128,8 @@ async def test_send_message_blocks_link_first_message(client, db_session, redis_
     )
     assert resp.status_code == 400
     body = resp.json()
-    assert body["detail"].startswith("suspicious_link")
+    assert body["error"] == "message_blocked_link"
+    assert body.get("message")
 
 
 async def test_send_message_flags_money_request(client, db_session, redis_client):

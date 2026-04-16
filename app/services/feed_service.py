@@ -38,7 +38,9 @@ from app.core.constants import (
     MATCHING_FEED_SIZE,
     MATCHING_SKIP_COOLDOWN_DAYS,
 )
+from app.core.errors import FlaamError
 from app.core.exceptions import AppException
+from app.core.i18n import t
 from app.models.behavior_log import BehaviorLog
 from app.models.feed_cache import FeedCache
 from app.models.match import Match
@@ -564,6 +566,7 @@ async def like_profile(
     idem_key: str | None,
     db: AsyncSession,
     redis_client: aioredis.Redis,
+    lang: str = "fr",
 ) -> dict:
     # 1. Idempotence — si même clé déjà vue, on rejoue la réponse cachée
     cached = await _get_idempotent_response(
@@ -592,8 +595,8 @@ async def like_profile(
     quota = int(await get_config(quota_key, redis_client, db))
     used = await _get_daily_likes_used(user.id, redis_client)
     if used >= quota:
-        raise AppException(
-            status.HTTP_429_TOO_MANY_REQUESTS, "daily_likes_exhausted"
+        raise FlaamError(
+            "daily_likes_exhausted", 429, lang, limit=quota
         )
 
     liked_prompt = (body or {}).get("liked_prompt")
@@ -917,7 +920,10 @@ def _first_thumbnail(user_obj: User) -> str | None:
 
 
 async def get_likes_received(
-    user: User, db: AsyncSession, redis_client: aioredis.Redis
+    user: User,
+    db: AsyncSession,
+    redis_client: aioredis.Redis,
+    lang: str = "fr",
 ) -> dict:
     """
     Mode 2-tier (voir docs/flaam-business-model.md).
@@ -951,12 +957,7 @@ async def get_likes_received(
             "is_premium_user": False,
             "total_count": 0,
             "preview": [],
-            "message_fr": (
-                "Personne ne t'a encore liké. Ça viendra."
-            ),
-            "message_en": (
-                "No one has liked you yet. It will come."
-            ),
+            "message": t("likes_received_empty", lang),
         }
 
     liker_ids = [m.user_a_id for m in pending_matches]
@@ -1027,16 +1028,7 @@ async def get_likes_received(
         "is_premium_user": False,
         "total_count": total,
         "preview": preview,
-        "message_fr": (
-            f"Tu as {total} personnes qui t'ont liké. L'algorithme va "
-            "les mettre progressivement dans ton feed si vous vous "
-            "correspondez. Passe Premium si tu veux les voir maintenant."
-        ),
-        "message_en": (
-            f"{total} people have liked you. The algorithm will "
-            "progressively add them to your feed if you match. "
-            "Go Premium to see them now."
-        ),
+        "message": t("likes_received_free", lang, count=total),
     }
 
 

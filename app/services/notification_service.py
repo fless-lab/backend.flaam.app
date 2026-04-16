@@ -10,19 +10,25 @@ Responsabilités :
   FCM_ENABLED=false, appel firebase-admin si true)
 
 Respect des préférences : chaque type de push est gaté par un flag dans
-NotificationPreference + quiet hours (simple check heure locale UTC).
+NotificationPreference + quiet hours local (timezone de la City du user).
+
+Session 11 — i18n :
+- Titres des pushs dans `_NOTIF_TITLES` (FR/EN).
+- Body via `app.core.i18n.t(type, lang, **data)`.
+- Types préfixés `notif_*` pour les mapper 1-to-1 aux clés MESSAGES.
+- Deep-link Flaam dans la payload data (navigation in-app).
 """
 
 from datetime import datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
-from fastapi import status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.exceptions import AppException
+from app.core.i18n import t
 from app.models.device import Device
 from app.models.notification_preference import NotificationPreference
 from app.models.user import User
@@ -31,59 +37,40 @@ log = structlog.get_logger()
 settings = get_settings()
 
 
-# Templates FR/EN (spec §26). Simples, non manipulateurs, conformes au
-# principe produit #3 (zéro notif marketing).
-TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
-    "new_match": {
-        "fr": {
-            "title": "Nouveau match !",
-            "body": "Tu as un nouveau match. Dis-lui bonjour !",
-        },
-        "en": {
-            "title": "New match!",
-            "body": "You have a new match. Say hi!",
-        },
+# Titres des notifications push (FR/EN). Les bodies vivent dans
+# app/core/i18n.py sous la même clé (ex : "notif_new_match").
+_NOTIF_TITLES: dict[str, dict[str, str]] = {
+    "notif_new_match": {
+        "fr": "Nouveau match !",
+        "en": "New match!",
     },
-    "new_message": {
-        "fr": {
-            "title": "Nouveau message",
-            "body": "{sender_name} t'a envoyé un message.",
-        },
-        "en": {
-            "title": "New message",
-            "body": "{sender_name} sent you a message.",
-        },
+    "notif_new_message": {
+        "fr": "Nouveau message",
+        "en": "New message",
     },
-    "event_reminder": {
-        "fr": {
-            "title": "Rappel event",
-            "body": "{event_name} commence dans 2h.",
-        },
-        "en": {
-            "title": "Event reminder",
-            "body": "{event_name} starts in 2h.",
-        },
+    "notif_event_reminder": {
+        "fr": "Rappel event",
+        "en": "Event reminder",
     },
-    "likes_received_count": {
-        "fr": {
-            "title": "Tu plais",
-            "body": "{count} personnes t'ont liké cette semaine.",
-        },
-        "en": {
-            "title": "You're popular",
-            "body": "{count} people liked you this week.",
-        },
+    "notif_likes_received_count": {
+        "fr": "Tu plais",
+        "en": "You're popular",
     },
-    "selfie_reverify_required": {
-        "fr": {
-            "title": "Vérification à refaire",
-            "body": "Ton genre a été mis à jour. Refais ton selfie pour continuer.",
-        },
-        "en": {
-            "title": "Re-verification needed",
-            "body": "Your gender was updated. Please retake your selfie to continue.",
-        },
+    "notif_selfie_required": {
+        "fr": "Vérification à refaire",
+        "en": "Re-verification needed",
     },
+}
+
+
+# Deep-links Flaam (URI scheme flaam://...). Les placeholders sont
+# remplis depuis `data` passé à send_push.
+_DEEP_LINKS: dict[str, str] = {
+    "notif_new_match": "flaam://matches/{match_id}",
+    "notif_new_message": "flaam://chat/{match_id}",
+    "notif_event_reminder": "flaam://events/{event_id}",
+    "notif_likes_received_count": "flaam://likes",
+    "notif_selfie_required": "flaam://profile/selfie",
 }
 
 
@@ -167,20 +154,31 @@ async def register_fcm_token(
 
 
 _TYPE_TO_PREF_FIELD: dict[str, str | None] = {
-    "new_match": "new_match",
-    "new_message": "new_message",
-    "event_reminder": "events",
-    "likes_received_count": None,  # Toujours envoyé (pas de flag dédié)
-    "selfie_reverify_required": None,  # Safety/compliance — bypass prefs
+    "notif_new_match": "new_match",
+    "notif_new_message": "new_message",
+    "notif_event_reminder": "events",
+    "notif_likes_received_count": None,  # Toujours envoyé (pas de flag dédié)
+    "notif_selfie_required": None,  # Safety/compliance — bypass prefs
 }
 
 
-def _in_quiet_hours(prefs: NotificationPreference, now: datetime) -> bool:
+def _in_quiet_hours(
+    prefs: NotificationPreference,
+    user: User,
+    now_utc: datetime,
+) -> bool:
     """
-    Respect des quiet hours. Approximation simple : on compare à l'heure
-    UTC du serveur. Le refinement par timezone user viendra en S11.
+    Respect des quiet hours en heure locale de la ville du user.
+
+    Si le user n'a pas de ville (onboarding incomplet) ou que la tz est
+    invalide, on retombe sur UTC pour ne pas spammer.
     """
-    h = now.hour
+    tz_name = user.city.timezone if user.city is not None else "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        tz = timezone.utc
+    h = now_utc.astimezone(tz).hour
     start = prefs.quiet_start_hour
     end = prefs.quiet_end_hour
     if start == end:
@@ -189,6 +187,16 @@ def _in_quiet_hours(prefs: NotificationPreference, now: datetime) -> bool:
         return start <= h < end
     # Fenêtre qui traverse minuit (ex 23 → 7)
     return h >= start or h < end
+
+
+def _format_deep_link(type_: str, data: dict) -> str | None:
+    tpl = _DEEP_LINKS.get(type_)
+    if tpl is None:
+        return None
+    try:
+        return tpl.format(**data)
+    except (KeyError, IndexError):
+        return tpl
 
 
 async def send_push(
@@ -205,7 +213,7 @@ async def send_push(
     En prod (FCM_ENABLED=true) : appel firebase-admin SDK (TODO S11).
 
     Retourne un dict décrivant le résultat (utile pour les tests) :
-    {"sent": bool, "reason": str | None, "type": str}
+    {"sent": bool, "reason": str | None, "type": str, "deep_link": str | None}
     """
     data = data or {}
     user = await db.get(User, user_id)
@@ -215,31 +223,25 @@ async def send_push(
     prefs = await get_or_create_preferences(user, db)
 
     # Gating par flag de préférence
+    if type not in _TYPE_TO_PREF_FIELD:
+        return {"sent": False, "reason": "unknown_type", "type": type}
     flag_field = _TYPE_TO_PREF_FIELD.get(type)
     if flag_field is not None and not getattr(prefs, flag_field, True):
         return {"sent": False, "reason": "pref_disabled", "type": type}
 
     # Quiet hours (sauf pour les pushs safety — non implémentés ici)
     now = datetime.now(timezone.utc)
-    if _in_quiet_hours(prefs, now):
+    if _in_quiet_hours(prefs, user, now):
         return {"sent": False, "reason": "quiet_hours", "type": type}
 
-    # Rendu template
-    lang = (user.language or "fr") if user.language in ("fr", "en") else "fr"
-    tpl_set = TEMPLATES.get(type, {}).get(lang) or TEMPLATES.get(
-        type, {}
-    ).get("fr")
-    if tpl_set is None:
+    # Rendu : titre depuis _NOTIF_TITLES, body via t() (cle identique au type).
+    lang = user.language if user.language in ("fr", "en") else "fr"
+    title_set = _NOTIF_TITLES.get(type)
+    if title_set is None:
         return {"sent": False, "reason": "unknown_type", "type": type}
-
-    try:
-        title = tpl_set["title"].format(**data)
-        body = tpl_set["body"].format(**data)
-    except KeyError as e:
-        log.warning(
-            "push_template_missing_var", type=type, missing=str(e)
-        )
-        return {"sent": False, "reason": "template_missing_var", "type": type}
+    title = title_set.get(lang) or title_set.get("fr") or type
+    body = t(type, lang, **data)
+    deep_link = _format_deep_link(type, data)
 
     if not settings.fcm_enabled:
         log.info(
@@ -248,21 +250,33 @@ async def send_push(
             type=type,
             title=title,
             body=body,
+            deep_link=deep_link,
         )
-        return {"sent": True, "reason": "logged_mvp", "type": type}
+        return {
+            "sent": True,
+            "reason": "logged_mvp",
+            "type": type,
+            "deep_link": deep_link,
+        }
 
     # ── FCM réel (firebase-admin) ────────────────────────────────────
     # Stub S8 : on log + on signale "fcm_not_cabled" ; le câblage
     # firebase-admin viendra en S11 avec le secret FCM_SERVICE_ACCOUNT_JSON.
     log.info(
-        "push_fcm_noop", user_id=str(user_id), type=type,
+        "push_fcm_noop",
+        user_id=str(user_id),
+        type=type,
         note="FCM enabled but firebase-admin SDK not wired yet (S11)",
     )
-    return {"sent": False, "reason": "fcm_not_wired", "type": type}
+    return {
+        "sent": False,
+        "reason": "fcm_not_wired",
+        "type": type,
+        "deep_link": deep_link,
+    }
 
 
 __all__ = [
-    "TEMPLATES",
     "get_or_create_preferences",
     "update_preferences",
     "register_fcm_token",

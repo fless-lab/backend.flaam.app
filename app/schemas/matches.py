@@ -71,7 +71,8 @@ class LikesReceivedResponse(BaseModel):
     """
     Réponse 2-tier (voir docs/flaam-business-model.md).
 
-    - Free   : total_count + 3 aperçus floutés + message_fr/en bilingue.
+    - Free   : total_count + 3 aperçus floutés + message i18n (FR/EN selon
+      Accept-Language).
     - Premium: total_count + profils complets.
     """
 
@@ -79,8 +80,7 @@ class LikesReceivedResponse(BaseModel):
     total_count: int
     # Mode free
     preview: list[LikesReceivedPreview] | None = None
-    message_fr: str | None = None
-    message_en: str | None = None
+    message: str | None = None
     # Mode premium
     profiles: list[FeedProfileItem] | None = None
 

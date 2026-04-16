@@ -35,7 +35,7 @@ async def event_reminder(event_id: UUID, db: AsyncSession | None = None) -> None
     Push 2h avant l'event aux inscrits.
 
     STUB S8. Implémentation réelle en S10 : charge les inscrits checked_in
-    ou registered, appelle notification_service.send_push(type="event_reminder")
+    ou registered, appelle notification_service.send_push(type="notif_event_reminder")
     en respectant les notification_preferences (flag events + quiet hours).
     """
     log.info(

@@ -5,10 +5,11 @@ from __future__ import annotations
 from uuid import UUID
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis
+from app.core.i18n import detect_lang
 from app.models.user import User
 from app.schemas.matches import (
     LikesReceivedResponse,
@@ -33,11 +34,14 @@ async def list_my_matches(
 # FastAPI ne matche "likes-received" comme un UUID.
 @router.get("/likes-received", response_model=LikesReceivedResponse)
 async def likes_received(
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
-    return await feed_service.get_likes_received(user, db, redis)
+    return await feed_service.get_likes_received(
+        user, db, redis, lang=detect_lang(request)
+    )
 
 
 @router.get("/{match_id}", response_model=MatchDetailResponse)

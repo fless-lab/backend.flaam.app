@@ -21,7 +21,7 @@ Serveur → client
   {"type": "ack", "client_message_id": "...", "message_id": "...", "status": "sent"}
   {"type": "typing_start"/"typing_stop", "match_id": "...", "from": "user_uuid"}
   {"type": "read", "match_id": "...", "last_read_id": "..."}
-  {"type": "error", "detail": "...", "user_message_fr": "...", "user_message_en": "..."}
+  {"type": "error", "detail": "...", "message": "..."}
 
 Codes de fermeture :
   4001 : JWT invalide / expiré.
@@ -43,6 +43,7 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.core.security import decode_token
 from app.db.redis import redis_pool
@@ -291,12 +292,19 @@ async def _handle_sync(websocket: WebSocket, user: User, payload: dict) -> None:
                     )
                     return
                 messages = await chat_service.sync_missed_messages(
-                    match_uuid, user, last_id, db
+                    match_uuid, user, last_id, db, lang=user.language or "fr"
                 )
             else:
                 messages = await chat_service.sync_all_user_matches(
                     user, last_id, db
                 )
+    except FlaamError as exc:
+        await websocket.send_text(
+            json.dumps(
+                {"type": "error", "detail": exc.code, "message": exc.message}
+            )
+        )
+        return
     except AppException as exc:
         await websocket.send_text(
             json.dumps({"type": "error", "detail": exc.detail})
@@ -345,17 +353,18 @@ async def _handle_message(websocket: WebSocket, user: User, payload: dict) -> No
                 client_message_id=str(client_message_id),
                 db=db,
                 redis=redis_client,
+                lang=user.language or "fr",
             )
-    except AppException as exc:
+    except FlaamError as exc:
         await websocket.send_text(
             json.dumps(
-                {
-                    "type": "error",
-                    "detail": exc.detail,
-                    "user_message_fr": getattr(exc, "user_message_fr", None),
-                    "user_message_en": getattr(exc, "user_message_en", None),
-                }
+                {"type": "error", "detail": exc.code, "message": exc.message}
             )
+        )
+        return
+    except AppException as exc:
+        await websocket.send_text(
+            json.dumps({"type": "error", "detail": exc.detail})
         )
         return
 
@@ -419,8 +428,9 @@ async def _handle_read(user: User, payload: dict) -> None:
                 last_read_message_id=last_read_uuid,
                 db=db,
                 redis=redis_client,
+                lang=user.language or "fr",
             )
-    except AppException:
+    except (FlaamError, AppException):
         return
 
 

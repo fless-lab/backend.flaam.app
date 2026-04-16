@@ -18,6 +18,7 @@ from fastapi import status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.core.onboarding import (
     ONBOARDING_FLOW,
@@ -128,7 +129,9 @@ async def get_my_profile(user: User, db: AsyncSession) -> dict:
     return _profile_to_my_dict(user, user.profile)
 
 
-async def get_other_profile(target_user_id, db: AsyncSession) -> dict:
+async def get_other_profile(
+    target_user_id, db: AsyncSession, lang: str = "fr"
+) -> dict:
     result = await db.execute(
         select(User).where(
             User.id == target_user_id,
@@ -140,7 +143,7 @@ async def get_other_profile(target_user_id, db: AsyncSession) -> dict:
     )
     target = result.scalar_one_or_none()
     if target is None or target.profile is None:
-        raise AppException(status.HTTP_404_NOT_FOUND, "profile_not_found")
+        raise FlaamError("profile_not_found", 404, lang)
     return _profile_to_public_dict(target, target.profile)
 
 
@@ -157,7 +160,7 @@ _REQUIRED_FOR_CREATE = (
 
 
 async def update_profile(
-    user: User, body: dict, db: AsyncSession
+    user: User, body: dict, db: AsyncSession, lang: str = "fr"
 ) -> dict:
     """
     Met à jour le profil. Si aucun Profile n'existe, on en crée un (à
@@ -201,9 +204,7 @@ async def update_profile(
         # sécurité §CLAUDE.md). Seul un admin peut le modifier via
         # PATCH /admin/users/{id}/gender, ce qui invalide le selfie.
         if "gender" in data and data["gender"] != profile.gender:
-            raise AppException(
-                status.HTTP_400_BAD_REQUEST, "gender_not_modifiable"
-            )
+            raise FlaamError("gender_not_modifiable", 400, lang)
         for field, value in data.items():
             setattr(profile, field, value)
 

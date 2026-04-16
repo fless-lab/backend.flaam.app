@@ -246,7 +246,7 @@ async def test_like_quota_exhausted_returns_429(client, db_session, redis_client
 
     r6 = await client.post(f"/feed/{men[5].id}/like", json={}, headers=headers)
     assert r6.status_code == 429
-    assert r6.json()["detail"] == "daily_likes_exhausted"
+    assert r6.json()["error"] == "daily_likes_exhausted"
 
 
 async def test_like_updates_behavior_stats(client, db_session, redis_client):

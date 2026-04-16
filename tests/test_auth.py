@@ -108,7 +108,7 @@ async def test_otp_rate_limit(client, redis_client):
 
     resp = await client.post("/auth/otp/request", json={"phone": "+22890000001"})
     assert resp.status_code == 429
-    assert resp.json()["detail"].startswith("rate_limited")
+    assert resp.json()["error"] == "otp_rate_limited"
 
 
 async def test_delete_account_soft_delete(client, redis_client, db_session):

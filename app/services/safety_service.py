@@ -26,6 +26,7 @@ from fastapi import status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.models.account_history import AccountHistory
 from app.models.block import Block
@@ -55,6 +56,7 @@ async def report_user(
     description: str | None,
     evidence_message_ids: list[UUID] | None,
     db: AsyncSession,
+    lang: str = "fr",
 ) -> Report:
     """Crée un Report + déclenche scam_detection sur le reported (synchrone)."""
     if reported_user_id == reporter.id:
@@ -64,7 +66,7 @@ async def report_user(
 
     reported = await db.get(User, reported_user_id)
     if reported is None:
-        raise AppException(status.HTTP_404_NOT_FOUND, "user_not_found")
+        raise FlaamError("user_not_found", 404, lang)
 
     report = Report(
         reporter_id=reporter.id,
@@ -112,6 +114,7 @@ async def block_user(
     blocker: User,
     blocked_user_id: UUID,
     db: AsyncSession,
+    lang: str = "fr",
 ) -> Block:
     """
     Crée un Block (idempotent) + met à jour l'AccountHistory du bloqué.
@@ -121,13 +124,11 @@ async def block_user(
     immédiat au prochain calcul de feed.
     """
     if blocked_user_id == blocker.id:
-        raise AppException(
-            status.HTTP_400_BAD_REQUEST, "cannot_block_self"
-        )
+        raise FlaamError("cannot_block_self", 400, lang)
 
     blocked = await db.get(User, blocked_user_id)
     if blocked is None:
-        raise AppException(status.HTTP_404_NOT_FOUND, "user_not_found")
+        raise FlaamError("user_not_found", 404, lang)
 
     # Idempotent
     existing = await db.execute(

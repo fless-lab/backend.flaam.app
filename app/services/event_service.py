@@ -21,6 +21,7 @@ from fastapi import status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.models.city import City
 from app.models.event import Event
@@ -101,11 +102,11 @@ async def list_events(
 
 
 async def get_event_detail(
-    event_id: UUID, user: User, db: AsyncSession
+    event_id: UUID, user: User, db: AsyncSession, lang: str = "fr"
 ) -> dict:
     ev = await db.get(Event, event_id)
     if ev is None or not ev.is_active:
-        raise AppException(status.HTTP_404_NOT_FOUND, "event_not_found")
+        raise FlaamError("event_not_found", 404, lang)
 
     spot = await db.get(Spot, ev.spot_id)
     reg_row = await db.execute(
@@ -143,7 +144,12 @@ async def get_event_detail(
 
 
 async def register_to_event(
-    event_id: UUID, user: User, db: AsyncSession, *, via: str = "app"
+    event_id: UUID,
+    user: User,
+    db: AsyncSession,
+    *,
+    via: str = "app",
+    lang: str = "fr",
 ) -> dict:
     """
     Inscrit un user à un event. Gère la capacité :
@@ -152,13 +158,13 @@ async def register_to_event(
     """
     ev = await db.get(Event, event_id)
     if ev is None or not ev.is_active:
-        raise AppException(status.HTTP_404_NOT_FOUND, "event_not_found")
+        raise FlaamError("event_not_found", 404, lang)
     if ev.status == "cancelled":
         raise AppException(status.HTTP_400_BAD_REQUEST, "event_cancelled")
     if ev.status in ("completed",):
         raise AppException(status.HTTP_400_BAD_REQUEST, "event_ended")
     if ev.status == "draft":
-        raise AppException(status.HTTP_404_NOT_FOUND, "event_not_found")
+        raise FlaamError("event_not_found", 404, lang)
 
     existing = (
         await db.execute(
@@ -177,7 +183,7 @@ async def register_to_event(
         }
 
     if ev.max_attendees is not None and ev.current_attendees >= ev.max_attendees:
-        raise AppException(status.HTTP_409_CONFLICT, "event_full")
+        raise FlaamError("event_full", 409, lang)
 
     reg = EventRegistration(
         event_id=event_id,
@@ -207,11 +213,11 @@ async def register_to_event(
 
 
 async def unregister_from_event(
-    event_id: UUID, user: User, db: AsyncSession
+    event_id: UUID, user: User, db: AsyncSession, lang: str = "fr"
 ) -> dict:
     ev = await db.get(Event, event_id)
     if ev is None:
-        raise AppException(status.HTTP_404_NOT_FOUND, "event_not_found")
+        raise FlaamError("event_not_found", 404, lang)
 
     existing = (
         await db.execute(
@@ -254,7 +260,12 @@ async def unregister_from_event(
 
 
 async def matches_preview(
-    event_id: UUID, user: User, db: AsyncSession, *, top_n: int = 5
+    event_id: UUID,
+    user: User,
+    db: AsyncSession,
+    *,
+    top_n: int = 5,
+    lang: str = "fr",
 ) -> dict:
     """
     Top N profils compatibles parmi les inscrits à l'event.
@@ -269,7 +280,7 @@ async def matches_preview(
 
     ev = await db.get(Event, event_id)
     if ev is None or not ev.is_active:
-        raise AppException(status.HTTP_404_NOT_FOUND, "event_not_found")
+        raise FlaamError("event_not_found", 404, lang)
 
     # Full-load user (profile + quartiers + spots) pour les scorers.
     full_user = await _load_user_full(user.id, db)
@@ -429,6 +440,7 @@ async def checkin_event(
     event_id: UUID,
     qr_code: str,
     db: AsyncSession,
+    lang: str = "fr",
 ) -> dict:
     """
     Check-in via QR HMAC signé.
@@ -455,11 +467,11 @@ async def checkin_event(
 
     ev = await db.get(Event, event_id)
     if ev is None or not ev.is_active:
-        raise AppException(status.HTTP_404_NOT_FOUND, "event_not_found")
+        raise FlaamError("event_not_found", 404, lang)
 
     scanned_user = await db.get(User, scanned_user_id)
     if scanned_user is None:
-        raise AppException(status.HTTP_404_NOT_FOUND, "user_not_found")
+        raise FlaamError("user_not_found", 404, lang)
 
     reg_row = await db.execute(
         select(EventRegistration).where(

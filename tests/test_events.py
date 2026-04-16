@@ -154,7 +154,7 @@ async def test_register_event_full_returns_409(
         f"/events/{ev.id}/register", headers=auth_headers
     )
     assert resp.status_code == 409
-    assert resp.json()["detail"] == "event_full"
+    assert resp.json()["error"] == "event_full"
 
 
 async def test_unregister_event(

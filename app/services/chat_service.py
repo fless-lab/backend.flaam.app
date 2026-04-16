@@ -29,6 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.models.match import Match
 from app.models.message import Message
@@ -54,21 +55,23 @@ PAGE_MAX = 50
 # ══════════════════════════════════════════════════════════════════════
 
 
-async def _get_active_match(match_id: UUID, user_id: UUID, db: AsyncSession) -> Match:
+async def _get_active_match(
+    match_id: UUID, user_id: UUID, db: AsyncSession, lang: str = "fr"
+) -> Match:
     """Charge le match + vérifie que ``user_id`` est participant.
 
     Renvoie 404 si match inconnu, non matché, expiré ou si user non-participant.
     """
     match = await db.get(Match, match_id)
     if match is None:
-        raise AppException(status.HTTP_404_NOT_FOUND, "match_not_found")
+        raise FlaamError("match_not_found", 404, lang)
     if user_id not in (match.user_a_id, match.user_b_id):
-        raise AppException(status.HTTP_404_NOT_FOUND, "match_not_found")
+        raise FlaamError("match_not_found", 404, lang)
     if match.status != "matched":
-        raise AppException(status.HTTP_404_NOT_FOUND, "match_not_found")
+        raise FlaamError("match_not_found", 404, lang)
     now = datetime.now(timezone.utc)
     if match.expires_at is not None and match.expires_at <= now:
-        raise AppException(status.HTTP_410_GONE, "match_expired")
+        raise FlaamError("match_expired", 410, lang)
     return match
 
 
@@ -111,6 +114,7 @@ async def get_messages(
     cursor: str | None,
     limit: int,
     db: AsyncSession,
+    lang: str = "fr",
 ) -> dict:
     """
     Pagination cursor-based, desc par created_at.
@@ -120,7 +124,7 @@ async def get_messages(
     - Retourne les messages strictement plus anciens que ``cursor``.
     - ``next_cursor`` = created_at du plus vieux retourné si ``has_more``.
     """
-    await _get_active_match(match_id, user.id, db)
+    await _get_active_match(match_id, user.id, db, lang)
 
     limit = max(1, min(limit or PAGE_DEFAULT, PAGE_MAX))
     stmt = (
@@ -162,8 +166,9 @@ async def send_message(
     client_message_id: str,
     db: AsyncSession,
     redis: aioredis.Redis,
+    lang: str = "fr",
 ) -> dict:
-    match = await _get_active_match(match_id, sender.id, db)
+    match = await _get_active_match(match_id, sender.id, db, lang)
 
     # 1. Dédup Redis SETNX : si clé existe déjà, on renvoie le message existant.
     dedup_key = DEDUP_KEY.format(
@@ -202,13 +207,16 @@ async def send_message(
     if mod.action == "block":
         # Libère le verrou : le client peut retry avec un autre contenu.
         await redis.delete(dedup_key)
-        detail = mod.reason or "message_blocked"
-        exc = AppException(status.HTTP_400_BAD_REQUEST, detail)
-        # Attache les messages user pour le handler (pas dans le JSON par
-        # défaut — chat_service ne connaît pas la réponse HTTP exacte).
-        exc.user_message_fr = mod.user_message_fr  # type: ignore[attr-defined]
-        exc.user_message_en = mod.user_message_en  # type: ignore[attr-defined]
-        raise exc
+        # Mapping moderation.reason → i18n key (§21 + principes produit).
+        # Les deux seules raisons qui bloquent aujourd'hui : insult / suspicious_link*.
+        if mod.reason == "insult":
+            raise FlaamError("message_blocked_insult", 400, lang)
+        if mod.reason and mod.reason.startswith("suspicious_link"):
+            raise FlaamError("message_blocked_link", 400, lang)
+        # Fallback défensif : action=block sans reason connue (ne devrait pas arriver).
+        raise AppException(
+            status.HTTP_400_BAD_REQUEST, mod.reason or "message_blocked"
+        )
 
     # 3. Insert. On fixe created_at côté Python : l'ordre chronologique
     # doit être préservé même quand plusieurs messages sont insérés
@@ -306,8 +314,9 @@ async def send_voice(
     client_message_id: str,
     db: AsyncSession,
     redis: aioredis.Redis,
+    lang: str = "fr",
 ) -> dict:
-    match = await _get_active_match(match_id, sender.id, db)
+    match = await _get_active_match(match_id, sender.id, db, lang)
 
     # Dédup (même logique que send_message)
     dedup_key = DEDUP_KEY.format(
@@ -401,8 +410,9 @@ async def propose_meetup(
     client_message_id: str,
     db: AsyncSession,
     redis: aioredis.Redis,
+    lang: str = "fr",
 ) -> dict:
-    match = await _get_active_match(match_id, sender.id, db)
+    match = await _get_active_match(match_id, sender.id, db, lang)
 
     spot = await db.get(Spot, spot_id)
     if spot is None or not spot.is_active:
@@ -483,12 +493,13 @@ async def respond_meetup(
     counter_date: date | None,
     counter_time: time | None,
     db: AsyncSession,
+    lang: str = "fr",
 ) -> dict:
     msg = await db.get(Message, message_id)
     if msg is None or msg.message_type != "meetup":
         raise AppException(status.HTTP_404_NOT_FOUND, "meetup_not_found")
 
-    _match = await _get_active_match(msg.match_id, responder.id, db)
+    _match = await _get_active_match(msg.match_id, responder.id, db, lang)
     # Le responder doit être le DESTINATAIRE de la proposition.
     if msg.sender_id == responder.id:
         raise AppException(status.HTTP_403_FORBIDDEN, "cannot_respond_own_meetup")
@@ -525,8 +536,9 @@ async def mark_read(
     last_read_message_id: UUID,
     db: AsyncSession,
     redis: aioredis.Redis,
+    lang: str = "fr",
 ) -> dict:
-    await _get_active_match(match_id, user.id, db)
+    await _get_active_match(match_id, user.id, db, lang)
 
     pivot = await db.get(Message, last_read_message_id)
     if pivot is None or pivot.match_id != match_id:
@@ -575,8 +587,10 @@ async def mark_read(
 # ══════════════════════════════════════════════════════════════════════
 
 
-async def get_unread_count(match_id: UUID, user: User, db: AsyncSession) -> dict:
-    await _get_active_match(match_id, user.id, db)
+async def get_unread_count(
+    match_id: UUID, user: User, db: AsyncSession, lang: str = "fr"
+) -> dict:
+    await _get_active_match(match_id, user.id, db, lang)
     row = await db.execute(
         select(func.count(Message.id)).where(
             Message.match_id == match_id,
@@ -598,6 +612,7 @@ async def sync_missed_messages(
     user: User,
     last_message_id: UUID | None,
     db: AsyncSession,
+    lang: str = "fr",
 ) -> list[dict]:
     """
     Retourne les messages du match créés strictement après ``last_message_id``,
@@ -605,7 +620,7 @@ async def sync_missed_messages(
 
     Si ``last_message_id`` est None → renvoie les 50 plus récents en ordre asc.
     """
-    await _get_active_match(match_id, user.id, db)
+    await _get_active_match(match_id, user.id, db, lang)
 
     stmt = select(Message).where(Message.match_id == match_id)
     if last_message_id is not None:

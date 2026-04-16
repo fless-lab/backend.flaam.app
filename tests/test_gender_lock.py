@@ -37,7 +37,7 @@ async def test_gender_lock_rejects_change_via_user_endpoint(client, auth_headers
     payload["gender"] = "man"
     r2 = await client.put("/profiles/me", json=payload, headers=auth_headers)
     assert r2.status_code == 400
-    assert r2.json()["detail"] == "gender_not_modifiable"
+    assert r2.json()["error"] == "gender_not_modifiable"
 
 
 async def test_gender_lock_allows_same_value(client, auth_headers):

@@ -376,7 +376,7 @@ async def change_user_gender(
     await redis.delete(f"behavior:{user_id}")
     await notification_service.send_push(
         user_id,
-        type="selfie_reverify_required",
+        type="notif_selfie_required",
         data={},
         db=db,
     )

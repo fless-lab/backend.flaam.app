@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
+from app.core.i18n import detect_lang
 from app.models.user import User
 from app.schemas.events import (
     EventCheckinBody,
@@ -53,28 +54,37 @@ async def event_stats(
 )
 async def event_matches_preview(
     event_id: UUID,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await event_service.matches_preview(event_id, user, db)
+    return await event_service.matches_preview(
+        event_id, user, db, lang=detect_lang(request)
+    )
 
 
 @router.get("/{event_id}", response_model=EventDetailResponse)
 async def event_detail(
     event_id: UUID,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await event_service.get_event_detail(event_id, user, db)
+    return await event_service.get_event_detail(
+        event_id, user, db, lang=detect_lang(request)
+    )
 
 
 @router.post("/{event_id}/register", response_model=EventRegisterResponse)
 async def register_event(
     event_id: UUID,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await event_service.register_to_event(event_id, user, db)
+    return await event_service.register_to_event(
+        event_id, user, db, lang=detect_lang(request)
+    )
 
 
 @router.delete(
@@ -82,10 +92,13 @@ async def register_event(
 )
 async def unregister_event(
     event_id: UUID,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await event_service.unregister_from_event(event_id, user, db)
+    return await event_service.unregister_from_event(
+        event_id, user, db, lang=detect_lang(request)
+    )
 
 
 @router.post(
@@ -96,6 +109,7 @@ async def unregister_event(
 async def checkin_event(
     event_id: UUID,
     body: EventCheckinBody,
+    request: Request,
     _staff: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -105,7 +119,9 @@ async def checkin_event(
     device staff qui utilise son propre compte Flaam). Le rôle staff
     dédié viendra en Session 10.
     """
-    return await event_service.checkin_event(event_id, body.qr_code, db)
+    return await event_service.checkin_event(
+        event_id, body.qr_code, db, lang=detect_lang(request)
+    )
 
 
 __all__ = ["router"]

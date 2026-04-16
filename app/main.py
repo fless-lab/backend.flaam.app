@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.core.errors import register_flaam_error_handler
 from app.core.exceptions import register_exception_handlers
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.middleware import (
@@ -79,6 +80,7 @@ _uploads_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 register_exception_handlers(app)
+register_flaam_error_handler(app)
 
 
 @app.get("/health")

@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.core.security import (
     JWTError,
@@ -112,6 +113,7 @@ async def request_otp(
     phone: str,
     redis: aioredis.Redis,
     channel: Literal["sms", "whatsapp"] = "sms",
+    lang: str = "fr",
 ) -> dict:
     try:
         normalized = normalize_phone(phone)
@@ -122,9 +124,8 @@ async def request_otp(
 
     allowed, retry_after = await _check_otp_rate_limit(phash, redis)
     if not allowed:
-        raise AppException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            f"rate_limited:{retry_after}",
+        raise FlaamError(
+            "otp_rate_limited", 429, lang, retry_after=retry_after
         )
 
     code = generate_otp()

@@ -5,10 +5,11 @@ from __future__ import annotations
 from uuid import UUID
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, Response, status
+from fastapi import APIRouter, Depends, Header, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis
+from app.core.i18n import detect_lang
 from app.core.rate_limiter import rate_limit
 from app.models.user import User
 from app.schemas.feed import (
@@ -57,6 +58,7 @@ async def get_crossed(
 async def like(
     profile_id: UUID,
     body: LikeBody,
+    request: Request,
     x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -69,6 +71,7 @@ async def like(
         x_idempotency_key,
         db,
         redis,
+        lang=detect_lang(request),
     )
 
 

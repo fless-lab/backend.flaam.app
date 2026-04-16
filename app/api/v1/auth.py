@@ -23,13 +23,14 @@ from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
 import structlog
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.dependencies import get_current_user, get_db, get_redis
 from app.core.exceptions import AppException
+from app.core.i18n import detect_lang
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -86,22 +87,28 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/otp/request", response_model=OtpResponse)
 async def otp_request(
     body: OtpRequestBody,
+    request: Request,
     redis: aioredis.Redis = Depends(get_redis),
 ) -> OtpResponse:
-    result = await auth_service.request_otp(body.phone, redis, channel="sms")
+    result = await auth_service.request_otp(
+        body.phone, redis, channel="sms", lang=detect_lang(request)
+    )
     return OtpResponse(**result)
 
 
 @router.post("/otp/resend", response_model=OtpResponse)
 async def otp_resend(
     body: OtpResendBody,
+    request: Request,
     redis: aioredis.Redis = Depends(get_redis),
 ) -> OtpResponse:
     """
     Renvoi de l'OTP via un canal alternatif (WhatsApp typiquement).
     Proposé côté client après ~30 s sans réception SMS.
     """
-    result = await auth_service.request_otp(body.phone, redis, channel=body.channel)
+    result = await auth_service.request_otp(
+        body.phone, redis, channel=body.channel, lang=detect_lang(request)
+    )
     return OtpResponse(**result)
 
 
@@ -280,6 +287,7 @@ async def recovery_request(
 @router.post("/recovery/confirm", response_model=OtpResponse)
 async def recovery_confirm(
     body: RecoveryConfirmBody,
+    request: Request,
     redis: aioredis.Redis = Depends(get_redis),
 ) -> OtpResponse:
     """
@@ -296,7 +304,9 @@ async def recovery_confirm(
         body.new_phone,
         ex=60 * 60,
     )
-    result = await auth_service.request_otp(body.new_phone, redis, channel="sms")
+    result = await auth_service.request_otp(
+        body.new_phone, redis, channel="sms", lang=detect_lang(request)
+    )
     return OtpResponse(**result)
 
 

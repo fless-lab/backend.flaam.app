@@ -81,7 +81,7 @@ async def test_send_push_respects_pref_disabled(
     await db_session.commit()
 
     result = await notification_service.send_push(
-        test_user.id, type="new_match", db=db_session
+        test_user.id, type="notif_new_match", db=db_session
     )
     assert result["sent"] is False
     assert result["reason"] == "pref_disabled"
@@ -95,11 +95,11 @@ async def test_send_push_logs_in_mvp_mode(
 
     result = await notification_service.send_push(
         test_user.id,
-        type="new_match",
+        type="notif_new_match",
         db=db_session,
     )
     # En MVP (fcm_enabled=false par défaut)
-    assert result["type"] == "new_match"
+    assert result["type"] == "notif_new_match"
     # Si quiet_hours tombe pile à l'exécution, on l'accepte aussi
     assert result["sent"] in (True, False)
     if result["sent"]:

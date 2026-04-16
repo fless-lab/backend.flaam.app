@@ -207,5 +207,5 @@ async def test_websocket_blocked_message_returns_error(
         )
         response = json.loads(ws.receive_text())
         assert response["type"] == "error"
-        assert response["detail"] == "insult"
-        assert response.get("user_message_fr")
+        assert response["detail"] == "message_blocked_insult"
+        assert response.get("message")

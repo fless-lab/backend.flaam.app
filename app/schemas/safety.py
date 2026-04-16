@@ -29,6 +29,7 @@ class ReportBody(BaseModel):
 class ReportResponse(BaseModel):
     id: UUID
     status: str
+    message: str | None = None
 
 
 class BlockBody(BaseModel):
@@ -38,10 +39,12 @@ class BlockBody(BaseModel):
 class BlockResponse(BaseModel):
     status: Literal["blocked"]
     blocked_user_id: UUID
+    message: str | None = None
 
 
 class UnblockResponse(BaseModel):
     status: Literal["unblocked"]
+    message: str | None = None
 
 
 class ShareDateBody(BaseModel):
@@ -70,10 +73,12 @@ class EmergencyBody(BaseModel):
 class EmergencyResponse(BaseModel):
     status: Literal["armed"]
     expires_at: datetime
+    message: str | None = None
 
 
 class TimerCancelResponse(BaseModel):
     status: Literal["cancelled", "no_active_timer"]
+    message: str | None = None
 
 
 __all__ = [

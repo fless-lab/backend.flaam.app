@@ -184,8 +184,7 @@ async def test_likes_received_free_returns_count_and_preview(
     assert body["is_premium_user"] is False
     assert body["total_count"] == 3
     assert len(body["preview"]) == 3
-    assert "3 personnes" in body["message_fr"]
-    assert "3 people" in body["message_en"]
+    assert "3 personnes" in body["message"]
     # Pas de liste complète exposée en free
     assert body.get("profiles") in (None, [])
 
