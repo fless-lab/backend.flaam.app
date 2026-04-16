@@ -134,3 +134,18 @@ def auth_headers(test_user):
 
     token = create_access_token(test_user.id)
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(autouse=True)
+def isolated_storage(tmp_path, monkeypatch):
+    """
+    Redirige STORAGE_ROOT vers un tmp_path par test pour que les photos
+    uploadées ne polluent pas le volume persistant entre runs.
+    """
+    from app.core import config
+    from app.services import photo_service
+
+    settings = config.get_settings()
+    monkeypatch.setattr(settings, "storage_root", str(tmp_path))
+    monkeypatch.setattr(photo_service.settings, "storage_root", str(tmp_path))
+    return tmp_path

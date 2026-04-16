@@ -34,6 +34,10 @@ class Photo(Base, UUIDMixin, TimestampMixin):
     moderation_score: Mapped[float | None] = mapped_column(nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
+    # Couleur dominante en hex (#RRGGBB) — placeholder pendant le chargement
+    # progressif côté mobile (§30 cache strategy).
+    dominant_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+
     user = relationship("User", back_populates="photos")
 
     __table_args__ = (

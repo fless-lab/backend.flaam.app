@@ -41,13 +41,29 @@ class Settings(BaseSettings):
     celery_broker_url: str = "amqp://flaam:password@rabbitmq:5672/flaam"
     celery_result_backend: str = "redis://redis:6379/3"
 
-    # R2 Storage
+    # R2 Storage (Session 11 — stub pour l'instant)
     r2_endpoint: str = ""
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     r2_bucket_photos: str = "flaam-photos"
     r2_bucket_voice: str = "flaam-voice"
     cdn_base_url: str = "https://cdn.flaam.app"
+
+    # Local storage (MVP photos — remplacé par R2 en Session 11)
+    # STORAGE_ROOT est monté via docker-compose sur /app/uploads.
+    storage_root: str = "/app/uploads"
+    public_base_url: str = "http://localhost:8000"
+
+    # Photo constraints (§3.7, §5.3)
+    photo_max_size_bytes: int = 10 * 1024 * 1024  # 10 MB
+    photo_min_count: int = 3
+    photo_max_count: int = 6
+
+    # Selfie verification (§13 SELFIE_VERIFICATION)
+    # Passe à True quand le pipeline liveness (Session 11 / ML Kit) est
+    # câblé. En MVP on accepte tel quel mais on loggue la photo comme
+    # pending modération asynchrone (§17).
+    selfie_liveness_required: bool = False
 
     # SMS (Termii — unique provider au MVP)
     termii_api_key: str = ""
