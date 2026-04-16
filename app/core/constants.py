@@ -95,6 +95,10 @@ MATCHING_DEFAULTS: dict[str, float] = {
     "event_boost_points": 15.0,
     "event_boost_window_days": 7.0,
     "event_boost_decay_days": 14.0,
+
+    # ── Likes limits (§5.6) ──
+    "daily_likes_free": 5.0,
+    "daily_likes_premium": 50.0,
 }
 
 
