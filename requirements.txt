@@ -8,6 +8,7 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.1
 GeoAlchemy2==0.15.2
+shapely==2.0.6
 
 # Redis
 redis[hiredis]==5.2.1

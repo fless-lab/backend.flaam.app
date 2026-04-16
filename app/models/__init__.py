@@ -25,6 +25,8 @@ from app.models.matching_config import MatchingConfig
 from app.models.account_history import AccountHistory
 from app.models.city_launch_status import CityLaunchStatus
 from app.models.payment import Payment
+from app.models.waitlist_entry import WaitlistEntry
+from app.models.invite_code import InviteCode
 
 __all__ = [
     "City",
@@ -52,4 +54,6 @@ __all__ = [
     "AccountHistory",
     "CityLaunchStatus",
     "Payment",
+    "WaitlistEntry",
+    "InviteCode",
 ]

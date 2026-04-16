@@ -56,6 +56,13 @@ class User(Base, UUIDMixin, TimestampMixin):
     language: Mapped[str] = mapped_column(String(5), default="fr")
     account_created_count: Mapped[int] = mapped_column(default=1)
 
+    # ── Programme ambassadrices (MàJ 7) ──
+    # Les ambassadrices reçoivent 50 codes d'invitation et bypassent la
+    # waitlist pour elles-mêmes.
+    is_ambassador: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+
     # ── Email (optionnel, encouragé pour recovery + notifications) ──
     email: Mapped[str | None] = mapped_column(
         String(255), unique=True, nullable=True
