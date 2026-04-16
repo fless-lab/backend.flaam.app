@@ -28,8 +28,22 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     ban_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    city_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("cities.id"), nullable=False
+    # Soft-delete RGPD (§17). `deleted_at` set ⇒ pipeline RGPD déclenché.
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # city_id est renseigné à l'étape CITY_SELECTION de l'onboarding
+    # (spec §13). À la création par OTP verify, il est null.
+    city_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cities.id"), nullable=True
+    )
+    onboarding_step: Mapped[str] = mapped_column(
+        String(30),
+        default="city_selection",
+        server_default="city_selection",
+        nullable=False,
     )
 
     last_active_at: Mapped[datetime] = mapped_column(
@@ -41,6 +55,22 @@ class User(Base, UUIDMixin, TimestampMixin):
 
     language: Mapped[str] = mapped_column(String(5), default="fr")
     account_created_count: Mapped[int] = mapped_column(default=1)
+
+    # ── Email (optionnel, encouragé pour recovery + notifications) ──
+    email: Mapped[str | None] = mapped_column(
+        String(255), unique=True, nullable=True
+    )
+    is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # ── MFA optionnel (PIN 6 chiffres hashé bcrypt) ──
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    mfa_pin_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # ── Recovery email (peut différer de l'email principal) ──
+    recovery_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     city = relationship("City", lazy="selectin")
     profile = relationship(

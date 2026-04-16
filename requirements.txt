@@ -17,6 +17,7 @@ celery[redis]==5.4.0
 
 # Settings
 pydantic-settings==2.7.1
+email-validator==2.2.0
 
 # Auth
 python-jose[cryptography]==3.3.0

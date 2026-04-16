@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # Security
     secret_key: str = "change-me"
     jwt_access_token_expire_minutes: int = 15
-    jwt_refresh_token_expire_days: int = 30
+    jwt_refresh_token_expire_days: int = 7
     jwt_algorithm: str = "HS256"
     otp_length: int = 6
     otp_expire_seconds: int = 600
@@ -49,10 +49,17 @@ class Settings(BaseSettings):
     r2_bucket_voice: str = "flaam-voice"
     cdn_base_url: str = "https://cdn.flaam.app"
 
-    # SMS
+    # SMS (Termii — unique provider au MVP)
     termii_api_key: str = ""
     termii_sender_id: str = "Flaam"
     termii_base_url: str = "https://api.ng.termii.com"
+    termii_sandbox: bool = False
+    # Mode dev : on loggue simplement le code OTP sans appeler Termii
+    sms_simulate: bool = True
+
+    # Rate limiting OTP (spec §15, §5.1)
+    rate_limit_otp_per_window: int = 3
+    rate_limit_otp_window_seconds: int = 600
 
     # Payment
     paystack_secret_key: str = ""
