@@ -98,7 +98,10 @@ MATCHING_DEFAULTS: dict[str, float] = {
 
     # ── Likes limits (§5.6) ──
     "daily_likes_free": 5.0,
-    "daily_likes_premium": 50.0,
+    # Likes/jour en premium : 10 (2x le free).
+    # Choix assumé "qualité > volume" — voir docs/flaam-business-model.md.
+    # Configurable en prod via admin API si besoin de passer à 15.
+    "daily_likes_premium": 10.0,
 }
 
 

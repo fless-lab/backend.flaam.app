@@ -127,34 +127,19 @@ async def test_unmatch_sets_status_unmatched(client, db_session, redis_client):
 # ══════════════════════════════════════════════════════════════════════
 
 
-async def test_likes_received_403_for_free_user(client, db_session, redis_client):
-    data = await seed_ama_and_kofi(db_session)
-    resp = await client.get(
-        "/matches/likes-received", headers=headers_for(data["ama"])
-    )
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "premium_required"
-
-
-async def test_likes_received_premium_filters_matched_and_skipped(
-    client, db_session, redis_client
-):
-    """
-    Setup : Ama (premium) a 3 likers. Elle a déjà skippé 1, matché 1.
-    /likes-received ne doit retourner que le 3e.
-    """
+async def _seed_ama_with_likers(db_session, *, is_premium: bool, n_likers: int = 3):
+    """Helper : Ama + N likers dans Tokoin. Retourne (ama, likers, base)."""
     base = await seed_city_lome(db_session)
     q = base["quartiers"]
-
     ama = await make_user(
         db_session, phone="+22890003001", city_id=base["city"].id,
         display_name="Ama", gender="woman", seeking="men",
-        birth_year=1999, is_premium=True,
+        birth_year=1999, is_premium=is_premium,
     )
     await attach_quartier(db_session, ama, q["tokoin"], "lives")
 
     likers = []
-    for i in range(3):
+    for i in range(n_likers):
         m = await make_user(
             db_session, phone=f"+22890003{100+i:03d}",
             city_id=base["city"].id,
@@ -164,6 +149,88 @@ async def test_likes_received_premium_filters_matched_and_skipped(
         await attach_quartier(db_session, m, q["tokoin"], "lives")
         likers.append(m)
     await db_session.commit()
+    return ama, likers, base
+
+
+async def test_daily_likes_premium_is_10():
+    """Session 6.5 — quota premium ramené à 10 (alignement business-model)."""
+    from app.core.constants import MATCHING_DEFAULTS
+
+    assert MATCHING_DEFAULTS["daily_likes_premium"] == 10.0
+    assert MATCHING_DEFAULTS["daily_likes_free"] == 5.0
+
+
+async def test_likes_received_free_returns_count_and_preview(
+    client, db_session, redis_client
+):
+    """
+    Session 6.5 — mode free : 200 OK avec total_count + preview floutée +
+    messages bilingues. Plus de 403.
+    """
+    ama, likers, _ = await _seed_ama_with_likers(
+        db_session, is_premium=False, n_likers=3
+    )
+    for m in likers:
+        r = await client.post(
+            f"/feed/{ama.id}/like", json={}, headers=headers_for(m)
+        )
+        assert r.status_code == 200
+
+    resp = await client.get(
+        "/matches/likes-received", headers=headers_for(ama)
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["is_premium_user"] is False
+    assert body["total_count"] == 3
+    assert len(body["preview"]) == 3
+    assert "3 personnes" in body["message_fr"]
+    assert "3 people" in body["message_en"]
+    # Pas de liste complète exposée en free
+    assert body.get("profiles") in (None, [])
+
+
+async def test_likes_received_free_preview_has_blurred_photos(
+    client, db_session, redis_client
+):
+    """Chaque aperçu expose blurred_photo_url + first_letter (pas le nom complet)."""
+    ama, likers, _ = await _seed_ama_with_likers(
+        db_session, is_premium=False, n_likers=2
+    )
+    for m in likers:
+        r = await client.post(
+            f"/feed/{ama.id}/like", json={}, headers=headers_for(m)
+        )
+        assert r.status_code == 200
+
+    resp = await client.get(
+        "/matches/likes-received", headers=headers_for(ama)
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_premium_user"] is False
+    for item in body["preview"]:
+        assert "blurred_photo_url" in item
+        assert "first_letter" in item
+        assert len(item["first_letter"]) == 1
+        # Pas de fuite d'infos identifiantes
+        assert "display_name" not in item
+        assert "user_id" not in item
+    # Les first_letter correspondent aux prénoms L0/L1
+    letters = {item["first_letter"] for item in body["preview"]}
+    assert letters == {"L"}
+
+
+async def test_likes_received_premium_filters_matched_and_skipped(
+    client, db_session, redis_client
+):
+    """
+    Setup : Ama (premium) a 3 likers. Elle a déjà skippé 1, matché 1.
+    /likes-received ne doit retourner que le 3e + is_premium_user=true.
+    """
+    ama, likers, _ = await _seed_ama_with_likers(
+        db_session, is_premium=True, n_likers=3
+    )
 
     # Chaque liker like Ama
     for m in likers:
@@ -186,7 +253,10 @@ async def test_likes_received_premium_filters_matched_and_skipped(
         "/matches/likes-received", headers=headers_for(ama)
     )
     assert resp.status_code == 200, resp.text
-    profiles = resp.json()["profiles"]
+    body = resp.json()
+    assert body["is_premium_user"] is True
+    assert body["total_count"] == 1
+    profiles = body["profiles"]
     ids = [p["user_id"] for p in profiles]
     assert str(likers[2].id) in ids
     assert str(likers[0].id) not in ids  # skippé

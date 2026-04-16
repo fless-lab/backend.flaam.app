@@ -60,10 +60,29 @@ class UnmatchResponse(BaseModel):
     status: Literal["unmatched"]
 
 
-class LikesReceivedResponse(BaseModel):
-    """Feed-like : gens qui t'ont liké et avec qui tu n'as pas matché."""
+class LikesReceivedPreview(BaseModel):
+    """Aperçu flouté pour user free (identification minimale)."""
 
-    profiles: list[FeedProfileItem]
+    blurred_photo_url: str | None = None
+    first_letter: str
+
+
+class LikesReceivedResponse(BaseModel):
+    """
+    Réponse 2-tier (voir docs/flaam-business-model.md).
+
+    - Free   : total_count + 3 aperçus floutés + message_fr/en bilingue.
+    - Premium: total_count + profils complets.
+    """
+
+    is_premium_user: bool
+    total_count: int
+    # Mode free
+    preview: list[LikesReceivedPreview] | None = None
+    message_fr: str | None = None
+    message_en: str | None = None
+    # Mode premium
+    profiles: list[FeedProfileItem] | None = None
 
 
 __all__ = [
@@ -73,5 +92,6 @@ __all__ = [
     "MatchListResponse",
     "MatchDetailResponse",
     "UnmatchResponse",
+    "LikesReceivedPreview",
     "LikesReceivedResponse",
 ]

@@ -818,21 +818,37 @@ async def log_view(
 
 
 # ══════════════════════════════════════════════════════════════════════
-# GET /matches/likes-received (premium only)
+# GET /matches/likes-received (2-tier : free preview / premium complet)
 # ══════════════════════════════════════════════════════════════════════
+
+
+def _first_letter(name: str | None) -> str:
+    if not name:
+        return "?"
+    return name.strip()[:1].upper() or "?"
+
+
+def _first_thumbnail(user_obj: User) -> str | None:
+    for p in sorted(
+        [p for p in (user_obj.photos or []) if p.moderation_status != "rejected"],
+        key=lambda ph: ph.display_order,
+    ):
+        return p.thumbnail_url
+    return None
 
 
 async def get_likes_received(
     user: User, db: AsyncSession, redis_client: aioredis.Redis
 ) -> dict:
     """
-    Matches où user_b_id = moi AND status = "pending" (quelqu'un m'a liké),
-    moins les targets que j'ai déjà skippés ou matchés de mon côté.
-    Tri par plus récent, max 50. Hydratation identique au feed.
-    """
-    if not user.is_premium:
-        raise AppException(status.HTTP_403_FORBIDDEN, "premium_required")
+    Mode 2-tier (voir docs/flaam-business-model.md).
 
+    - Free   : total_count + 3 aperçus floutés + message bilingue.
+    - Premium: total_count + profils complets FeedProfileItem.
+
+    Filtrage commun : exclut les likers que j'ai déjà skippés ou matchés
+    de mon côté. Tri par plus récent.
+    """
     pending_rows = await db.execute(
         select(Match)
         .where(
@@ -843,8 +859,26 @@ async def get_likes_received(
         .limit(200)  # surdimensionne avant filtre mine
     )
     pending_matches = pending_rows.scalars().all()
+
     if not pending_matches:
-        return {"profiles": []}
+        is_premium = bool(user.is_premium)
+        if is_premium:
+            return {
+                "is_premium_user": True,
+                "total_count": 0,
+                "profiles": [],
+            }
+        return {
+            "is_premium_user": False,
+            "total_count": 0,
+            "preview": [],
+            "message_fr": (
+                "Personne ne t'a encore liké. Ça viendra."
+            ),
+            "message_en": (
+                "No one has liked you yet. It will come."
+            ),
+        }
 
     liker_ids = [m.user_a_id for m in pending_matches]
 
@@ -864,24 +898,67 @@ async def get_likes_received(
         if m.user_a_id in acted:
             continue
         filtered.append(m.user_a_id)
-        if len(filtered) >= 50:
-            break
 
-    me_full = await _load_user_full(user.id, db)
-    others = await _load_users_full(filtered, db)
-    items: list[dict] = []
-    for uid in filtered:
-        other = others.get(uid)
+    is_premium = bool(user.is_premium)
+
+    if is_premium:
+        me_full = await _load_user_full(user.id, db)
+        others = await _load_users_full(filtered[:50], db)
+        items: list[dict] = []
+        for uid in filtered[:50]:
+            other = others.get(uid)
+            if other is None or other.profile is None:
+                continue
+            if not other.is_visible or other.is_banned or other.is_deleted:
+                continue
+            items.append(
+                _hydrate_profile(
+                    me_full or user,
+                    other,
+                    is_wildcard=False,
+                    is_new_user=False,
+                )
+            )
+        return {
+            "is_premium_user": True,
+            "total_count": len(filtered),
+            "profiles": items,
+        }
+
+    # Free : preview floutée des 3 plus récents
+    preview_ids = filtered[:3]
+    preview_users = await _load_users_full(preview_ids, db)
+    preview: list[dict] = []
+    for uid in preview_ids:
+        other = preview_users.get(uid)
         if other is None or other.profile is None:
             continue
         if not other.is_visible or other.is_banned or other.is_deleted:
             continue
-        items.append(
-            _hydrate_profile(
-                me_full or user, other, is_wildcard=False, is_new_user=False
-            )
+        # Thumbnail 150px comme "flou" server-side (MVP, voir business-model).
+        preview.append(
+            {
+                "blurred_photo_url": _first_thumbnail(other),
+                "first_letter": _first_letter(other.profile.display_name),
+            }
         )
-    return {"profiles": items}
+
+    total = len(filtered)
+    return {
+        "is_premium_user": False,
+        "total_count": total,
+        "preview": preview,
+        "message_fr": (
+            f"Tu as {total} personnes qui t'ont liké. L'algorithme va "
+            "les mettre progressivement dans ton feed si vous vous "
+            "correspondez. Passe Premium si tu veux les voir maintenant."
+        ),
+        "message_en": (
+            f"{total} people have liked you. The algorithm will "
+            "progressively add them to your feed if you match. "
+            "Go Premium to see them now."
+        ),
+    }
 
 
 __all__ = [
