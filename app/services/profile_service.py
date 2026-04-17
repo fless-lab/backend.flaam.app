@@ -244,6 +244,72 @@ async def update_profile(
     }
 
 
+# ── Patch (onboarding partiel) ────────────────────────────────────────
+
+async def patch_profile(
+    user: User, body: dict, db: AsyncSession, lang: str = "fr"
+) -> dict:
+    """
+    Mise à jour partielle du profil pour l'onboarding step-by-step.
+    Contrairement à update_profile (PUT), ne requiert PAS tous les champs
+    obligatoires pour créer le Profile — intention et sector sont nullable.
+    """
+    data = {k: v for k, v in body.items() if v is not None}
+
+    # ── city_id → User (pas Profile) ──
+    city_id = data.pop("city_id", None)
+    if city_id is not None:
+        city = await db.get(City, city_id)
+        if not city:
+            raise FlaamError("city_not_found", 404, lang)
+        if city.phase not in ("launch", "growth", "stable"):
+            raise FlaamError("city_not_available", 400, lang)
+        user.city_id = city_id
+
+    # Validation range seeking_age
+    min_age = data.get("seeking_age_min")
+    max_age = data.get("seeking_age_max")
+    if min_age is not None and max_age is not None and min_age > max_age:
+        raise AppException(
+            status.HTTP_400_BAD_REQUEST,
+            "seeking_age_min must be <= seeking_age_max",
+        )
+
+    # Sérialiser prompts
+    if "prompts" in data:
+        data["prompts"] = [
+            p.model_dump() if hasattr(p, "model_dump") else dict(p)
+            for p in data["prompts"]
+        ]
+
+    profile = user.profile
+    if profile is None:
+        if data:
+            profile = Profile(user_id=user.id, **data)
+            db.add(profile)
+            user.profile = profile
+    else:
+        if "gender" in data and data["gender"] != profile.gender:
+            raise FlaamError("gender_not_modifiable", 400, lang)
+        for field, value in data.items():
+            setattr(profile, field, value)
+
+    if profile is not None:
+        score, _ = compute_completeness(user, profile)
+        profile.profile_completeness = score
+
+    advance_onboarding(user)
+
+    await db.commit()
+    if profile is not None:
+        await db.refresh(profile)
+        return _profile_to_my_dict(user, profile)
+    return {
+        "city_id": str(user.city_id) if user.city_id else None,
+        "onboarding_step": user.onboarding_step,
+    }
+
+
 # ── Completeness ─────────────────────────────────────────────────────
 
 async def calculate_completeness(user: User, db: AsyncSession) -> dict:
@@ -365,6 +431,7 @@ __all__ = [
     "get_my_profile",
     "get_other_profile",
     "update_profile",
+    "patch_profile",
     "calculate_completeness",
     "toggle_visibility",
     "get_onboarding_state",

@@ -71,6 +71,20 @@ async def update_me(
     )
 
 
+@router.patch("/me")
+async def patch_me(
+    body: UpdateProfileBody,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Mise à jour partielle (onboarding step-by-step). Pas de champs requis."""
+    payload = body.model_dump(exclude_unset=True)
+    return await profile_service.patch_profile(
+        user, payload, db, lang=detect_lang(request)
+    )
+
+
 @router.get("/me/completeness", response_model=CompletenessResponse)
 async def completeness(
     user: User = Depends(get_current_user),

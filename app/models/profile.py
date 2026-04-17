@@ -25,8 +25,8 @@ class Profile(Base, UUIDMixin, TimestampMixin):
     gender: Mapped[str] = mapped_column(String(20), nullable=False)
     seeking_gender: Mapped[str] = mapped_column(String(20), nullable=False)
 
-    intention: Mapped[str] = mapped_column(String(30), nullable=False)
-    sector: Mapped[str] = mapped_column(String(30), nullable=False)
+    intention: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    sector: Mapped[str | None] = mapped_column(String(30), nullable=True)
     rhythm: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     prompts: Mapped[dict] = mapped_column(JSONB, default=list)

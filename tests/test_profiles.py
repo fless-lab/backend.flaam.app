@@ -236,6 +236,129 @@ async def test_update_profile_with_teaser_city_rejected(
     assert resp.json()["error"] == "city_not_available"
 
 
+async def test_patch_profile_city_only(client, auth_headers, db_session):
+    """PATCH /profiles/me avec city_id seul (pas de Profile) → 200."""
+    from app.models.city import City
+
+    city = City(
+        id=uuid4(),
+        name="Abidjan",
+        country_code="CI",
+        country_name="Cote d'Ivoire",
+        timezone="Africa/Abidjan",
+        currency_code="XOF",
+        premium_price_monthly=5000,
+        premium_price_weekly=1500,
+        phase="launch",
+        is_active=True,
+    )
+    db_session.add(city)
+    await db_session.commit()
+
+    resp = await client.patch(
+        "/profiles/me",
+        json={"city_id": str(city.id)},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["city_id"] == str(city.id)
+    assert resp.json()["onboarding_step"] != "city_selection"
+
+
+async def test_patch_profile_basic_info_partial(client, auth_headers, db_session):
+    """PATCH /profiles/me avec basic_info partiel (sans intention/sector) → 200."""
+    from app.models.city import City
+
+    city = City(
+        id=uuid4(),
+        name="Dakar",
+        country_code="SN",
+        country_name="Senegal",
+        timezone="Africa/Dakar",
+        currency_code="XOF",
+        premium_price_monthly=5000,
+        premium_price_weekly=1500,
+        phase="launch",
+        is_active=True,
+    )
+    db_session.add(city)
+    await db_session.commit()
+
+    # D'abord city
+    await client.patch(
+        "/profiles/me",
+        json={"city_id": str(city.id)},
+        headers=auth_headers,
+    )
+
+    # Puis basic_info sans intention ni sector
+    resp = await client.patch(
+        "/profiles/me",
+        json={
+            "display_name": "Ama",
+            "birth_date": "2000-03-15",
+            "gender": "woman",
+            "seeking_gender": "men",
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["display_name"] == "Ama"
+    # intention/sector sont None car pas encore remplis
+    assert body.get("intention") is None
+    assert body.get("sector") is None
+
+
+async def test_patch_then_put_completes_profile(client, auth_headers, db_session):
+    """PATCH pour creer le profil partiel, puis PUT pour le completer."""
+    from app.models.city import City
+
+    city = City(
+        id=uuid4(),
+        name="Accra",
+        country_code="GH",
+        country_name="Ghana",
+        timezone="Africa/Accra",
+        currency_code="GHS",
+        premium_price_monthly=50,
+        premium_price_weekly=15,
+        phase="launch",
+        is_active=True,
+    )
+    db_session.add(city)
+    await db_session.commit()
+
+    # PATCH city
+    await client.patch(
+        "/profiles/me",
+        json={"city_id": str(city.id)},
+        headers=auth_headers,
+    )
+    # PATCH basic_info
+    await client.patch(
+        "/profiles/me",
+        json={
+            "display_name": "Kofi",
+            "birth_date": "1998-06-20",
+            "gender": "man",
+            "seeking_gender": "women",
+        },
+        headers=auth_headers,
+    )
+    # PATCH intention + sector
+    resp = await client.patch(
+        "/profiles/me",
+        json={"intention": "serious", "sector": "tech"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["intention"] == "serious"
+    assert body["sector"] == "tech"
+    assert body["display_name"] == "Kofi"
+
+
 async def test_get_other_profile_not_visible(client, auth_headers, db_session):
     """Voir un user invisible doit renvoyer 404."""
     from app.models.user import User
