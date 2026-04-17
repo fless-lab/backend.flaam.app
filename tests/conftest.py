@@ -89,8 +89,14 @@ async def redis_client() -> AsyncIterator[aioredis.Redis]:
     # Patch le pool global pour que get_redis() retourne notre client
     redis_module.redis_pool._pool = client
     yield client
-    await client.flushdb()
-    await client.aclose()
+    try:
+        await client.flushdb()
+    except Exception:  # noqa: BLE001
+        pass  # connection may be corrupted by cross-loop WS handler
+    try:
+        await client.aclose()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @pytest_asyncio.fixture()
@@ -154,11 +160,32 @@ async def sync_client(engine, redis_client):
     session_module.async_session = _fresh_session
     ws_chat_module.async_session = _fresh_session
 
+    # The TestClient lifespan calls redis_pool.initialize() → creates a
+    # Redis connection on its internal loop. On shutdown redis_pool.close()
+    # races with the loop closing → "Event loop is closed". We wrap close()
+    # to swallow this race. initialize() runs normally so the WS handler
+    # gets a proper same-loop Redis client.
+    original_close = redis_module.redis_pool.close
+
+    async def _safe_close() -> None:
+        try:
+            await original_close()
+        except (RuntimeError, Exception):
+            # "Event loop is closed" during TestClient shutdown
+            redis_module.redis_pool._pool = None
+
+    redis_module.redis_pool.close = _safe_close  # type: ignore[assignment]
+
     tc = TestClient(app)
     try:
         yield tc
     finally:
-        tc.close()
+        try:
+            tc.close()
+        except RuntimeError:
+            pass  # "Event loop is closed" race in TestClient shutdown
+        redis_module.redis_pool.close = original_close  # type: ignore[assignment]
+        redis_module.redis_pool._pool = redis_client
         session_module.async_session = original_async_session
         ws_chat_module.async_session = original_ws_async_session
         app.dependency_overrides.clear()

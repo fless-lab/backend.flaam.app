@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.errors import register_flaam_error_handler
+from app.core.logging import setup_logging
 from app.core.exceptions import register_exception_handlers
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.middleware import (
@@ -22,6 +23,7 @@ from app.db.redis import redis_pool
 from app.db.session import engine
 from app.ws.chat import router as ws_chat_router
 
+setup_logging()
 logger = structlog.get_logger()
 settings = get_settings()
 

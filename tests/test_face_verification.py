@@ -58,10 +58,6 @@ def test_face_service_embed_returns_128d(monkeypatch, tmp_path):
     """Mock onnxruntime → embed_face retourne un array de shape (128,)."""
     from PIL import Image
 
-    from app.core.config import get_settings
-
-    settings = get_settings()
-
     # Create a test image
     img = Image.new("RGB", (200, 200), (128, 128, 128))
     img_path = str(tmp_path / "test.jpg")

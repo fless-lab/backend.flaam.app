@@ -203,7 +203,10 @@ async def chat_websocket(websocket: WebSocket) -> None:
         log.warning("ws_loop_error", user_id=str(user_id), err=str(exc))
     finally:
         heartbeat_task.cancel()
-        await connection_manager.disconnect(user_id, websocket)
+        try:
+            await connection_manager.disconnect(user_id, websocket)
+        except Exception:  # noqa: BLE001
+            pass
         if redis_client is not None:
             try:
                 await redis_client.delete(online_key)

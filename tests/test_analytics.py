@@ -16,7 +16,7 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 async def test_compute_daily_kpis_creates_rows(db_session, redis_client):
     """Creer quelques users → compute → verifier DailyKpi rows."""
-    data = await seed_ama_and_kofi(db_session)
+    await seed_ama_and_kofi(db_session)
     today = datetime.now(timezone.utc).date()
 
     # Run directly with db_session (bypass async_session factory)
@@ -48,7 +48,7 @@ async def test_compute_daily_kpis_creates_rows(db_session, redis_client):
 
 async def test_daily_kpi_upsert_idempotent(db_session, redis_client):
     """Lancer 2 fois → meme nombre de rows (pas de doublons)."""
-    data = await seed_ama_and_kofi(db_session)
+    await seed_ama_and_kofi(db_session)
     today = datetime.now(timezone.utc).date()
 
     from app.tasks.analytics_tasks import _compute_for_city, _upsert_kpi
