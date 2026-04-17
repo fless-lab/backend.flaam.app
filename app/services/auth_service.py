@@ -339,9 +339,7 @@ async def verify_otp(
         "expires_in": settings.jwt_access_token_expire_minutes * 60,
         "is_new_user": is_new_user,
         "user_id": user.id,
-        "onboarding_step": (
-            user.onboarding_step if (is_new_user or is_ghost_conversion) else None
-        ),
+        "onboarding_step": user.onboarding_step,
         "restriction": restriction_info["restriction"] if restriction_info else None,
         "mfa_required": mfa_required,
         "is_ghost_conversion": is_ghost_conversion,

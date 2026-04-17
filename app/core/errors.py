@@ -52,9 +52,14 @@ def register_flaam_error_handler(app: FastAPI) -> None:
     async def _flaam_error_handler(
         request: Request, exc: FlaamError
     ) -> JSONResponse:
+        content: dict = {"error": exc.code, "message": exc.message}
+        # Expose les kwargs structurés (ex: remaining=2) dans la response
+        # pour que le mobile puisse les exploiter sans parser le message.
+        for k, v in exc.kwargs.items():
+            content[k] = v
         return JSONResponse(
             status_code=exc.status_code,
-            content={"error": exc.code, "message": exc.message},
+            content=content,
         )
 
 

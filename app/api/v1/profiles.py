@@ -58,7 +58,7 @@ async def get_me(
     return await profile_service.get_my_profile(user, db)
 
 
-@router.put("/me", response_model=MyProfileResponse)
+@router.put("/me")
 async def update_me(
     body: UpdateProfileBody,
     request: Request,

@@ -201,15 +201,18 @@ async def update_profile(
 
     profile = user.profile
     if profile is None:
-        missing = [f for f in _REQUIRED_FOR_CREATE if f not in data]
-        if missing:
-            raise AppException(
-                status.HTTP_400_BAD_REQUEST,
-                f"missing_required_fields:{','.join(missing)}",
-            )
-        profile = Profile(user_id=user.id, **data)
-        db.add(profile)
-        user.profile = profile
+        # Si data contient des champs Profile → on crée le Profile,
+        # sinon on skip (ex: seul city_id a été envoyé).
+        if data:
+            missing = [f for f in _REQUIRED_FOR_CREATE if f not in data]
+            if missing:
+                raise AppException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"missing_required_fields:{','.join(missing)}",
+                )
+            profile = Profile(user_id=user.id, **data)
+            db.add(profile)
+            user.profile = profile
     else:
         # Le genre est verrouillé après l'onboarding (principe produit
         # sécurité §CLAUDE.md). Seul un admin peut le modifier via
@@ -221,16 +224,24 @@ async def update_profile(
 
     # Recompute completeness après l'update (la relation `photos` a déjà
     # été chargée par get_current_user via lazy="selectin")
-    score, _ = compute_completeness(user, profile)
-    profile.profile_completeness = score
+    if profile is not None:
+        score, _ = compute_completeness(user, profile)
+        profile.profile_completeness = score
 
     # Avance éventuelle de l'onboarding (si on vient de valider l'étape
     # courante)
     advance_onboarding(user)
 
     await db.commit()
-    await db.refresh(profile)
-    return _profile_to_my_dict(user, profile)
+    if profile is not None:
+        await db.refresh(profile)
+        return _profile_to_my_dict(user, profile)
+    # Pas de Profile encore (ex: seul city_id envoyé pendant l'onboarding).
+    # On retourne un dict minimal — la route utilisera response_model=None.
+    return {
+        "city_id": str(user.city_id) if user.city_id else None,
+        "onboarding_step": user.onboarding_step,
+    }
 
 
 # ── Completeness ─────────────────────────────────────────────────────
