@@ -6,8 +6,6 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from uuid import UUID
-
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.photos import PhotoResponse
