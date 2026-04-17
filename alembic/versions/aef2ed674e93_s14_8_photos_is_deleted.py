@@ -18,9 +18,23 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_column(table: str, column: str) -> bool:
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = :t AND column_name = :c"
+        ),
+        {"t": table, "c": column},
+    )
+    return result.scalar() is not None
+
+
 def upgrade() -> None:
-    op.add_column('photos', sa.Column('is_deleted', sa.Boolean(), server_default='false', nullable=False))
+    if not _has_column("photos", "is_deleted"):
+        op.add_column('photos', sa.Column('is_deleted', sa.Boolean(), server_default='false', nullable=False))
 
 
 def downgrade() -> None:
-    op.drop_column('photos', 'is_deleted')
+    if _has_column("photos", "is_deleted"):
+        op.drop_column('photos', 'is_deleted')
