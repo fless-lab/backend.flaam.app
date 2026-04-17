@@ -1,0 +1,8 @@
+# Dependencies for ONNX-based photo moderation pipeline.
+# NOT installed by default in Docker.
+# Install manually when activating PHOTO_MODERATION_MODE=onnx:
+#   pip install -r requirements-moderation.txt
+onnxruntime>=1.18.0
+opencv-python-headless>=4.9.0
+numpy>=1.26.0
+pillow>=10.0.0

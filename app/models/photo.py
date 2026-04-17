@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,7 +32,7 @@ class Photo(Base, UUIDMixin, TimestampMixin):
 
     moderation_status: Mapped[str] = mapped_column(String(20), default="pending")
     moderation_score: Mapped[float | None] = mapped_column(nullable=True)
-    rejection_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Soft delete RGPD (§17 Phase 1). La row reste en base pendant 30 j,
     # le fichier physique est purgé par la Phase 2 Celery (T+7).

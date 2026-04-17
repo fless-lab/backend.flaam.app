@@ -1110,3 +1110,46 @@ async def release_waitlist(
         released=result.get("released", 0),
     )
     return AdminWaitlistReleaseResponse(released=int(result.get("released", 0)))
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Daily KPIs — historique persiste (S13)
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.get("/stats/kpis")
+async def get_kpis(
+    date: str | None = Query(default=None, description="YYYY-MM-DD"),
+    city_id: UUID | None = Query(default=None),
+    metric: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Retourne les KPIs historiques persistes dans daily_kpis."""
+    from datetime import date as date_type
+
+    from app.models.daily_kpi import DailyKpi
+
+    q = select(DailyKpi)
+    if date:
+        try:
+            d = date_type.fromisoformat(date)
+        except ValueError:
+            raise AppException(status.HTTP_400_BAD_REQUEST, "invalid_date_format")
+        q = q.where(DailyKpi.date == d)
+    if city_id is not None:
+        q = q.where(DailyKpi.city_id == city_id)
+    if metric:
+        q = q.where(DailyKpi.metric == metric)
+    q = q.order_by(DailyKpi.date.desc()).limit(500)
+
+    result = await db.execute(q)
+    rows = result.scalars().all()
+    return [
+        {
+            "date": str(r.date),
+            "city_id": str(r.city_id) if r.city_id else None,
+            "metric": r.metric,
+            "value": r.value,
+        }
+        for r in rows
+    ]

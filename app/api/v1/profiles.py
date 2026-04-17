@@ -13,16 +13,20 @@ Routes Profiles (§5.2, §13).
 - POST /profiles/me/onboarding/skip
 """
 
+import os
 from uuid import UUID
 
+import redis.asyncio as aioredis
 import structlog
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import FlaamError
 from app.core.i18n import detect_lang
 
 from app.core.config import get_settings
-from app.core.dependencies import get_current_user, get_db
+from app.core.dependencies import get_current_user, get_db, get_redis
 from app.core.onboarding import advance_onboarding
 from app.models.user import User
 from app.schemas.photos import PhotoResponse
@@ -37,7 +41,7 @@ from app.schemas.profiles import (
     VisibilityBody,
     VisibilityResponse,
 )
-from app.services import photo_service, profile_service
+from app.services import export_service, photo_service, profile_service
 
 log = structlog.get_logger()
 settings = get_settings()
@@ -169,6 +173,37 @@ async def get_other(
 ) -> dict:
     return await profile_service.get_other_profile(
         user_id, db, lang=detect_lang(request)
+    )
+
+
+# ── Export RGPD (§17) ──────────���──────────────────────────────────
+
+@router.get("/me/export")
+async def export_my_data(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> FileResponse:
+    """
+    Exporte toutes les donnees personnelles de l'utilisateur (RGPD Art. 20).
+    Rate limit : 1 export par 24h.
+    """
+    lang = detect_lang(request)
+    rate_key = f"export:rate:{user.id}"
+    if await redis.exists(rate_key):
+        raise FlaamError("export_rate_limited", 429, lang)
+
+    zip_path = await export_service.generate_user_export(user.id, db)
+    await redis.set(rate_key, "1", ex=86400)
+
+    background_tasks.add_task(os.remove, zip_path)
+
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=f"flaam_export_{user.id}.zip",
     )
 
 

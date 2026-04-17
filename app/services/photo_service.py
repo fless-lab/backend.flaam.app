@@ -330,4 +330,18 @@ async def reorder_photos(
     return sorted(photos, key=lambda p: p.display_order)
 
 
-__all__ = ["upload_photo", "delete_photo", "reorder_photos"]
+def get_photo_disk_path(photo: Photo) -> str:
+    """Reconstruit le chemin disque depuis l'URL stockee en BD."""
+    # URL format: {public_base_url}/uploads/{user_id}/{filename}
+    # On extrait la partie relative après "/uploads/"
+    url = photo.original_url
+    marker = "/uploads/"
+    idx = url.find(marker)
+    if idx != -1:
+        relative = url[idx + len(marker) :]
+    else:
+        relative = url.lstrip("/")
+    return str(Path(settings.storage_root) / relative)
+
+
+__all__ = ["upload_photo", "delete_photo", "reorder_photos", "get_photo_disk_path"]

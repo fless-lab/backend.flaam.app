@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     face_model_path: str = "/models/yunet_face.onnx"
     nsfw_threshold_reject: float = 0.7
     nsfw_threshold_review: float = 0.4
+    # Face verification (§10.2, InsightFace ArcFace ONNX)
+    face_verification_enabled: bool = False
+    face_verification_model_path: str = "/models/arcface_r50.onnx"
+
     sightengine_user: str = ""
     sightengine_secret: str = ""
     sightengine_models: str = "nudity-2.0,face-attributes"
