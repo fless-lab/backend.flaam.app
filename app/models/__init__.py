@@ -27,6 +27,7 @@ from app.models.city_launch_status import CityLaunchStatus
 from app.models.payment import Payment
 from app.models.waitlist_entry import WaitlistEntry
 from app.models.invite_code import InviteCode
+from app.models.emergency_contact import EmergencyContact
 
 __all__ = [
     "City",
@@ -56,4 +57,5 @@ __all__ = [
     "Payment",
     "WaitlistEntry",
     "InviteCode",
+    "EmergencyContact",
 ]

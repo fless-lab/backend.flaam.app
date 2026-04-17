@@ -150,6 +150,46 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "Tu ne peux pas te bloquer toi-meme.",
         "en": "You cannot block yourself.",
     },
+    "contact_required": {
+        "fr": "Ajoute un contact de confiance avant d'activer le timer.",
+        "en": "Add an emergency contact before activating the timer.",
+    },
+    "max_contacts_reached": {
+        "fr": "Tu peux enregistrer maximum 3 contacts de confiance.",
+        "en": "You can save a maximum of 3 emergency contacts.",
+    },
+    "max_2_contacts_per_timer": {
+        "fr": "Tu peux selectionner maximum 2 contacts par timer.",
+        "en": "You can select a maximum of 2 contacts per timer.",
+    },
+    "contact_not_found": {
+        "fr": "Contact introuvable.",
+        "en": "Contact not found.",
+    },
+    "no_active_timer": {
+        "fr": "Aucun timer actif.",
+        "en": "No active timer.",
+    },
+    "timer_too_short": {
+        "fr": "Le timer doit durer au moins 30 minutes.",
+        "en": "Timer must be at least 30 minutes.",
+    },
+    "timer_too_long": {
+        "fr": "Le timer ne peut pas depasser 12 heures.",
+        "en": "Timer cannot exceed 12 hours.",
+    },
+    "timer_extended": {
+        "fr": "Timer prolonge de {hours}h.",
+        "en": "Timer extended by {hours}h.",
+    },
+    "emergency_triggered": {
+        "fr": "Alerte envoyee a tes contacts de confiance.",
+        "en": "Alert sent to your emergency contacts.",
+    },
+    "notif_safety_alert_15min": {
+        "fr": "Ton timer expire dans 15 min. Tout va bien ?",
+        "en": "Your timer expires in 15 min. Are you OK?",
+    },
 
     # ── Subscription ──
     "premium_activated": {

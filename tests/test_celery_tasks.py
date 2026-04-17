@@ -258,10 +258,8 @@ async def test_send_emergency_sms_fires_on_expired_timer(
     payload = {
         "user_id": str(user_id),
         "user_name": "Ama",
-        "contact_phone": "+22899000000",
-        "contact_name": "Maman",
+        "contacts": [{"phone": "+22899000000", "name": "Maman"}],
         "started_at": (expired_at - timedelta(hours=3)).isoformat(),
-        "expires_at": expired_at.isoformat(),
         "expires_at_utc": expired_at.isoformat(),
         "meeting_place": "Café 21",
     }
