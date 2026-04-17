@@ -28,6 +28,7 @@ from app.core.onboarding import (
     compute_completeness,
     is_step_done,
 )
+from app.models.city import City
 from app.models.profile import Profile
 from app.models.user import User
 
@@ -171,6 +172,16 @@ async def update_profile(
     existantes quand elles sont fournies (pas de merge partiel).
     """
     data = {k: v for k, v in body.items() if v is not None}
+
+    # ── city_id → User (pas Profile) ──
+    city_id = data.pop("city_id", None)
+    if city_id is not None:
+        city = await db.get(City, city_id)
+        if not city:
+            raise FlaamError("city_not_found", 404, lang)
+        if city.phase not in ("launch", "growth", "stable"):
+            raise FlaamError("city_not_available", 400, lang)
+        user.city_id = city_id
 
     # Validation range seeking_age si les deux sont fournis
     min_age = data.get("seeking_age_min")

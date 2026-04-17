@@ -3,6 +3,7 @@ from __future__ import annotations
 """Tests Profiles (§5.2, §13)."""
 
 from datetime import date
+from uuid import uuid4
 
 import pytest
 
@@ -169,6 +170,70 @@ async def test_onboarding_skip_skippable(client, auth_headers):
     body = resp.json()
     assert body["skipped"] == "prompts"
     assert body["warning"]  # on informe que ça diminue la visibilité
+
+
+async def test_update_profile_with_city_id_advances_onboarding(
+    client, auth_headers, db_session, test_user
+):
+    """PUT /profiles/me avec city_id valide (launch) avance l'onboarding."""
+    from app.models.city import City
+
+    city = City(
+        id=uuid4(),
+        name="Lomé",
+        country_code="TG",
+        country_name="Togo",
+        timezone="Africa/Lome",
+        currency_code="XOF",
+        premium_price_monthly=5000,
+        premium_price_weekly=1500,
+        phase="launch",
+        is_active=True,
+    )
+    db_session.add(city)
+    await db_session.commit()
+
+    resp = await client.put(
+        "/profiles/me",
+        json={**_base_profile_payload(), "city_id": str(city.id)},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["city_id"] == str(city.id)
+
+    # Onboarding doit avoir avancé au-delà de city_selection
+    onb = await client.get("/profiles/me/onboarding", headers=auth_headers)
+    assert onb.json()["current_step"] != "city_selection"
+
+
+async def test_update_profile_with_teaser_city_rejected(
+    client, auth_headers, db_session
+):
+    """PUT /profiles/me avec city_id teaser doit renvoyer 400."""
+    from app.models.city import City
+
+    teaser_city = City(
+        id=uuid4(),
+        name="Kara",
+        country_code="TG",
+        country_name="Togo",
+        timezone="Africa/Lome",
+        currency_code="XOF",
+        premium_price_monthly=5000,
+        premium_price_weekly=1500,
+        phase="teaser",
+        is_active=True,
+    )
+    db_session.add(teaser_city)
+    await db_session.commit()
+
+    resp = await client.put(
+        "/profiles/me",
+        json={"city_id": str(teaser_city.id)},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "city_not_available"
 
 
 async def test_get_other_profile_not_visible(client, auth_headers, db_session):

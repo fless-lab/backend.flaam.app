@@ -6,6 +6,8 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.photos import PhotoResponse
@@ -58,6 +60,8 @@ class UpdateProfileBody(BaseModel):
 
     seeking_age_min: int | None = Field(default=None, ge=18, le=99)
     seeking_age_max: int | None = Field(default=None, ge=18, le=99)
+
+    city_id: UUID | None = None
 
     @field_validator("birth_date")
     @classmethod

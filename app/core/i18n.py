@@ -72,6 +72,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "Profil introuvable.",
         "en": "Profile not found.",
     },
+    "city_not_found": {
+        "fr": "Ville introuvable.",
+        "en": "City not found.",
+    },
+    "city_not_available": {
+        "fr": "Cette ville n'est pas encore disponible.",
+        "en": "This city is not available yet.",
+    },
 
     # ── Feed / Matching ──
     "daily_likes_exhausted": {
