@@ -54,6 +54,8 @@ class FaceVerificationService:
     def __init__(self) -> None:
         self._session = None
         self._loaded = False
+        self._yunet_detector = None
+        self._yunet_loaded = False
 
     def _ensure_loaded(self) -> None:
         """Lazy load : charge le modele au premier appel."""
@@ -108,6 +110,53 @@ class FaceVerificationService:
         except Exception as e:
             log.warning("embed_face_error", path=image_path, error=str(e))
             return None
+
+    def detect_faces(self, image_path: str) -> list[dict]:
+        """
+        Detecte les visages avec YuNet (OpenCV FaceDetectorYN).
+        Retourne une liste de {bbox, confidence}.
+        """
+        if not self._yunet_loaded:
+            self._yunet_loaded = True
+            yunet_path = Path(settings.face_model_path)
+            if not yunet_path.exists():
+                log.warning("yunet_model_not_found", path=str(yunet_path))
+            else:
+                try:
+                    import cv2
+
+                    self._yunet_detector = cv2.FaceDetectorYN.create(
+                        str(yunet_path), "", (320, 320)
+                    )
+                    log.info("yunet_model_loaded", path=str(yunet_path))
+                except Exception as e:
+                    log.error("yunet_model_load_error", error=str(e))
+
+        if self._yunet_detector is None:
+            return []
+
+        try:
+            import cv2
+
+            img = cv2.imread(image_path)
+            if img is None:
+                return []
+            img_resized = cv2.resize(img, (320, 320))
+            self._yunet_detector.setInputSize((320, 320))
+            _, faces = self._yunet_detector.detect(img_resized)
+            if faces is None:
+                return []
+            return [
+                {
+                    "confidence": float(f[14]),
+                    "bbox": f[:4].tolist(),
+                }
+                for f in faces
+                if f[14] > 0.5
+            ]
+        except Exception as e:
+            log.warning("detect_faces_error", path=image_path, error=str(e))
+            return []
 
     async def verify_photo_against_selfie(
         self, user_id: UUID, photo_path: str, db: AsyncSession

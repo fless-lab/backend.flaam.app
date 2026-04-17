@@ -164,3 +164,56 @@ async def test_gender_consistency_skip_if_no_model(db_session, redis_client):
     result = await svc.verify_gender_consistency(uuid4(), db_session)
     assert result["status"] == "skip"
     assert result["reason"] == "gender_model_not_available"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# YuNet face detection
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_yunet_skip_if_no_model(monkeypatch):
+    """YuNet model absent → detect_faces retourne []."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "face_model_path", "/nonexistent/yunet.onnx")
+
+    svc = FaceVerificationService()
+    result = svc.detect_faces("/nonexistent.jpg")
+    assert result == []
+
+
+def test_yunet_returns_faces(tmp_path):
+    """Mock cv2.FaceDetectorYN → detect_faces retourne les visages."""
+    from PIL import Image
+
+    img = Image.new("RGB", (320, 320), (128, 128, 128))
+    img_path = str(tmp_path / "face.jpg")
+    img.save(img_path)
+
+    # Mock the detector
+    mock_detector = MagicMock()
+    fake_face = np.zeros(15, dtype=np.float32)
+    fake_face[14] = 0.95  # confidence
+    fake_face[:4] = [10, 20, 100, 120]  # bbox
+    mock_detector.detect.return_value = (1, np.array([fake_face]))
+    mock_detector.setInputSize = MagicMock()
+
+    svc = FaceVerificationService()
+    svc._yunet_loaded = True
+    svc._yunet_detector = mock_detector
+
+    # cv2 is imported lazily inside detect_faces, mock it at module level
+    mock_cv2 = MagicMock()
+    mock_cv2.imread.return_value = np.zeros((320, 320, 3), dtype=np.uint8)
+    mock_cv2.resize.return_value = np.zeros((320, 320, 3), dtype=np.uint8)
+
+    import sys
+    sys.modules["cv2"] = mock_cv2
+    try:
+        result = svc.detect_faces(img_path)
+    finally:
+        del sys.modules["cv2"]
+
+    assert len(result) == 1
+    assert result[0]["confidence"] == pytest.approx(0.95, abs=0.01)

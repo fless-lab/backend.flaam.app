@@ -50,6 +50,11 @@ class Event(Base, UUIDMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="draft", server_default="draft"
     )
+    # Timestamp du dernier envoi de rappel (evite les doublons).
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Slug stable pour la page web publique flaam.app/events/{slug}
     slug: Mapped[str | None] = mapped_column(
         String(120), unique=True, nullable=True, index=True

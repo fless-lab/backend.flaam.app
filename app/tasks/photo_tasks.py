@@ -93,18 +93,31 @@ async def _moderate_photo_onnx_async(photo_id_str: str) -> dict:
         else:
             checks["nsfw"] = {"status": "skip", "reason": "model_not_found"}
 
-        # ── 3. Face detection (si modele dispo) ──
-        face_model_path = Path(settings.face_model_path)
-        if face_model_path.exists():
-            checks["face_detection"] = {
-                "status": "skip",
-                "reason": "face_detection_integration_pending",
-            }
-        else:
+        # ── 3. Face detection (YuNet via OpenCV) ──
+        detected = face_service.detect_faces(disk_path)
+        if detected is None or face_service._yunet_detector is None:
             checks["face_detection"] = {
                 "status": "skip",
                 "reason": "model_not_found",
             }
+        elif len(detected) == 0:
+            checks["face_detection"] = {
+                "status": "no_face",
+                "risk": 0.3,
+            }
+            total_risk += 0.3
+        elif len(detected) == 1:
+            checks["face_detection"] = {
+                "status": "ok",
+                "confidence": detected[0]["confidence"],
+            }
+        else:
+            checks["face_detection"] = {
+                "status": "multiple_faces",
+                "count": len(detected),
+                "risk": 0.1,
+            }
+            total_risk += 0.1
 
         # ── 4. Selfie ↔ photo comparison ──
         selfie_result = await face_service.verify_photo_against_selfie(

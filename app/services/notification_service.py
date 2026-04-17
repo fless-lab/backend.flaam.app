@@ -72,6 +72,14 @@ _NOTIF_TITLES: dict[str, dict[str, str]] = {
         "fr": "Timer bientôt expiré",
         "en": "Timer expiring soon",
     },
+    "notif_event_teaser": {
+        "fr": "Event terminé",
+        "en": "Event over",
+    },
+    "notif_weekly_digest": {
+        "fr": "Events de la semaine",
+        "en": "This week's events",
+    },
 }
 
 
@@ -86,6 +94,8 @@ _DEEP_LINKS: dict[str, str] = {
     "notif_premium_expired": "flaam://subscription",
     "notif_reply_reminder": "flaam://chat/{match_id}",
     "notif_safety_alert_15min": "flaam://safety/timer",
+    "notif_event_teaser": "flaam://events/{event_id}",
+    "notif_weekly_digest": "flaam://events",
 }
 
 
@@ -177,6 +187,8 @@ _TYPE_TO_PREF_FIELD: dict[str, str | None] = {
     "notif_premium_expired": None,  # Info compte — toujours envoyé
     "notif_reply_reminder": "reply_reminders",
     "notif_safety_alert_15min": None,  # Safety — toujours envoyé, jamais désactivable.
+    "notif_event_teaser": "events",
+    "notif_weekly_digest": "events",
 }
 
 
@@ -233,8 +245,13 @@ async def send_push(
     Retourne un dict décrivant le résultat (utile pour les tests) :
     {"sent": bool, "reason": str | None, "type": str, "deep_link": str | None}
     """
+    from sqlalchemy.orm import selectinload
+
     data = data or {}
-    user = await db.get(User, user_id)
+    result = await db.execute(
+        select(User).options(selectinload(User.city)).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None or user.is_deleted or not user.is_active:
         return {"sent": False, "reason": "user_unavailable", "type": type}
 

@@ -17,6 +17,7 @@ services:
     volumes:
       - .:/app
       - uploads_data:/app/uploads
+      - ./models:/models:ro
     restart: unless-stopped
 
   db:
@@ -64,6 +65,7 @@ services:
     volumes:
       - .:/app
       - uploads_data:/app/uploads
+      - ./models:/models:ro
     restart: unless-stopped
 
   # Beat scheduler : enfile les tâches périodiques (feeds 3h, reminders,

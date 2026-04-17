@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     nsfw_threshold_reject: float = 0.7
     nsfw_threshold_review: float = 0.4
     # Face verification (§10.2, InsightFace ArcFace ONNX)
-    face_verification_enabled: bool = False
+    face_verification_enabled: bool = True
     face_verification_model_path: str = "/models/arcface_r50.onnx"
 
     sightengine_user: str = ""

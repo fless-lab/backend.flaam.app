@@ -312,6 +312,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "Tu plais : {count} personnes t'ont like cette semaine.",
         "en": "You're popular: {count} people liked you this week.",
     },
+    "notif_event_teaser": {
+        "fr": "L'event {title} est termine ! Decouvre les profils croises.",
+        "en": "Event {title} is over! Discover who you crossed paths with.",
+    },
+    "notif_weekly_digest": {
+        "fr": "{count} events cette semaine ! Le premier : {first_title}",
+        "en": "{count} events this week! First up: {first_title}",
+    },
 
     # ── Admin ──
     "admin_required": {
