@@ -56,17 +56,18 @@ async def test_verify_otp_invalid_code(client, redis_client):
         json={"phone": PHONE, "code": "000000"},
     )
     assert resp.status_code == 401
-    assert "invalid_otp" in resp.json()["detail"]
+    assert resp.json()["error"] == "otp_invalid"
+    assert "message" in resp.json()
 
 
 async def test_verify_otp_expired(client, redis_client):
-    # Pas d'OTP demandé préalablement → Redis vide → invalid
+    # Pas d'OTP demandé préalablement → Redis vide → expired
     resp = await client.post(
         "/auth/otp/verify",
         json={"phone": PHONE, "code": "123456"},
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"].startswith("invalid_otp")
+    assert resp.json()["error"] == "otp_expired"
 
 
 async def test_refresh_token_success(client, redis_client):

@@ -23,12 +23,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Code sent via {channel}. Check your phone.",
     },
     "otp_invalid": {
-        "fr": "Code incorrect. Reessaie.",
-        "en": "Invalid code. Try again.",
+        "fr": "Code incorrect. Il te reste {remaining} essai(s).",
+        "en": "Invalid code. {remaining} attempt(s) remaining.",
     },
     "otp_expired": {
         "fr": "Code expire. Demande un nouveau code.",
         "en": "Code expired. Request a new one.",
+    },
+    "otp_max_attempts": {
+        "fr": "Trop de tentatives. Demande un nouveau code.",
+        "en": "Too many attempts. Request a new code.",
     },
     "otp_rate_limited": {
         "fr": "Trop de tentatives. Reessaie dans {retry_after} secondes.",

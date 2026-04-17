@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.core.security import qr_code_hash, sign_event_qr
 from app.models.event import Event
@@ -101,17 +102,15 @@ async def verify_preregister_otp(
     # sans création de session / device).
     stored = await redis.get(f"otp:{phash}")
     if stored is None:
-        raise AppException(status.HTTP_401_UNAUTHORIZED, "invalid_otp")
+        raise FlaamError("otp_expired", 401)
     attempts = await redis.incr(f"otp:attempts:{phash}")
     await redis.expire(f"otp:attempts:{phash}", settings.otp_expire_seconds)
     if attempts > settings.otp_max_attempts:
         await redis.delete(f"otp:{phash}")
-        raise AppException(status.HTTP_429_TOO_MANY_REQUESTS, "otp_max_attempts")
+        raise FlaamError("otp_max_attempts", 429)
     if stored != code:
         remaining = max(0, settings.otp_max_attempts - attempts)
-        raise AppException(
-            status.HTTP_401_UNAUTHORIZED, f"invalid_otp:{remaining}"
-        )
+        raise FlaamError("otp_invalid", 401, remaining=remaining)
     await redis.delete(f"otp:{phash}")
     await redis.delete(f"otp:attempts:{phash}")
 

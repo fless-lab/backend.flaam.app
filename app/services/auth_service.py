@@ -205,6 +205,7 @@ async def verify_otp(
     os_version: str | None,
     db: AsyncSession,
     redis: aioredis.Redis,
+    lang: str = "fr",
 ) -> dict:
     try:
         normalized = normalize_phone(phone)
@@ -215,19 +216,17 @@ async def verify_otp(
 
     stored = await redis.get(_otp_key(phash))
     if stored is None:
-        raise AppException(status.HTTP_401_UNAUTHORIZED, "invalid_otp")
+        raise FlaamError("otp_expired", 401, lang)
 
     attempts = await redis.incr(_otp_attempts_key(phash))
     await redis.expire(_otp_attempts_key(phash), settings.otp_expire_seconds)
     if attempts > settings.otp_max_attempts:
         await redis.delete(_otp_key(phash))
-        raise AppException(status.HTTP_429_TOO_MANY_REQUESTS, "otp_max_attempts")
+        raise FlaamError("otp_max_attempts", 429, lang)
 
     if stored != code:
         remaining = max(0, settings.otp_max_attempts - attempts)
-        raise AppException(
-            status.HTTP_401_UNAUTHORIZED, f"invalid_otp:{remaining}"
-        )
+        raise FlaamError("otp_invalid", 401, lang, remaining=remaining)
 
     # Code correct — on consomme
     await redis.delete(_otp_key(phash))

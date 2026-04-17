@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.dependencies import get_current_user, get_db, get_redis
 from app.core.exceptions import AppException
+from app.core.errors import FlaamError
 from app.core.i18n import detect_lang
 from app.core.security import (
     create_access_token,
@@ -115,6 +116,7 @@ async def otp_resend(
 @router.post("/otp/verify", response_model=AuthTokenResponse)
 async def otp_verify(
     body: OtpVerifyBody,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> AuthTokenResponse:
@@ -127,6 +129,7 @@ async def otp_verify(
         os_version=body.os_version,
         db=db,
         redis=redis,
+        lang=detect_lang(request),
     )
     return AuthTokenResponse(**result)
 
@@ -313,6 +316,7 @@ async def recovery_confirm(
 @router.post("/recovery/complete", response_model=AuthTokenResponse)
 async def recovery_complete(
     body: RecoveryCompleteBody,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> AuthTokenResponse:
@@ -329,7 +333,7 @@ async def recovery_complete(
     phash = hash_phone(normalized)
     stored = await redis.get(f"otp:{phash}")
     if stored is None or stored != body.otp:
-        raise AppException(status.HTTP_401_UNAUTHORIZED, "invalid_otp")
+        raise FlaamError("otp_invalid", 401, detect_lang(request), remaining=0)
 
     user = await db.get(User, user_id)
     if user is None:
@@ -400,6 +404,7 @@ async def mfa_disable(
 @router.post("/phone/change/verify-old", response_model=SimpleMessage)
 async def phone_change_verify_old(
     body: OtpVerifyBody,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
     user: User = Depends(get_current_user),
@@ -418,7 +423,7 @@ async def phone_change_verify_old(
 
     stored = await redis.get(f"otp:{user.phone_hash}")
     if stored is None or stored != body.code:
-        raise AppException(status.HTTP_401_UNAUTHORIZED, "invalid_otp")
+        raise FlaamError("otp_invalid", 401, detect_lang(request), remaining=0)
 
     await redis.delete(f"otp:{user.phone_hash}")
     token = generate_recovery_token()
@@ -429,6 +434,7 @@ async def phone_change_verify_old(
 @router.post("/phone/change/set-new", response_model=AuthTokenResponse)
 async def phone_change_set_new(
     body: SetNewPhoneBody,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> AuthTokenResponse:
@@ -444,7 +450,7 @@ async def phone_change_set_new(
     new_phash = hash_phone(normalized)
     stored = await redis.get(f"otp:{new_phash}")
     if stored is None or stored != body.otp:
-        raise AppException(status.HTTP_401_UNAUTHORIZED, "invalid_otp")
+        raise FlaamError("otp_invalid", 401, detect_lang(request), remaining=0)
 
     user = await db.get(User, user_id)
     if user is None:
