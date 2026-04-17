@@ -245,7 +245,7 @@ async def test_likes_received_premium_filters_matched_and_skipped(
         assert r.status_code == 200
 
     # Ama skip L0
-    await seed_feed_cache(redis_client, db_session, ama, [l.id for l in likers])
+    await seed_feed_cache(redis_client, db_session, ama, [lk.id for lk in likers])
     await client.post(
         f"/feed/{likers[0].id}/skip", json={}, headers=headers_for(ama)
     )
