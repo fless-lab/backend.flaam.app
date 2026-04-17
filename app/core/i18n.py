@@ -94,6 +94,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "Tu as deja passe ce profil.",
         "en": "You already skipped this profile.",
     },
+    "profile_not_in_feed": {
+        "fr": "Ce profil n'est pas dans ton feed.",
+        "en": "This profile is not in your feed.",
+    },
     "match_not_found": {
         "fr": "Match introuvable.",
         "en": "Match not found.",

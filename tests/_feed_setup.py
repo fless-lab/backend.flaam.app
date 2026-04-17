@@ -7,6 +7,7 @@ Pas de décorateur test (underscore prefix) → pytest ne collecte pas ce
 module. Inspiré de tests/test_matching.py, simplifié pour S6.
 """
 
+import json
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -15,6 +16,7 @@ from shapely.geometry import Point
 
 from app.core.security import create_access_token
 from app.models.city import City
+from app.models.feed_cache import FeedCache
 from app.models.photo import Photo
 from app.models.profile import Profile
 from app.models.quartier import Quartier
@@ -280,3 +282,23 @@ async def seed_ama_and_kofi(db) -> dict:
     await db.refresh(ama)
     await db.refresh(kofi)
     return {**base, "ama": ama, "kofi": kofi}
+
+
+async def seed_feed_cache(redis_client, db, user, profile_ids):
+    """Populate Redis + DB feed cache so like_profile's feed guard passes."""
+    key = f"feed:{user.id}"
+    payload = {
+        "feed_date": date.today().isoformat(),
+        "profile_ids": [str(pid) for pid in profile_ids],
+        "wildcards": [],
+        "new_users": [],
+    }
+    await redis_client.set(key, json.dumps(payload), ex=86400)
+    db.add(
+        FeedCache(
+            user_id=user.id,
+            feed_date=date.today(),
+            profile_ids=list(profile_ids),
+        )
+    )
+    await db.flush()

@@ -23,6 +23,7 @@ from tests._feed_setup import (
     make_user,
     seed_ama_and_kofi,
     seed_city_lome,
+    seed_feed_cache,
 )
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -40,7 +41,9 @@ def _reset_geo_cache():
 # ══════════════════════════════════════════════════════════════════════
 
 
-async def _mutual_match(client, ama, kofi) -> str:
+async def _mutual_match(client, db_session, redis_client, ama, kofi) -> str:
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
+    await seed_feed_cache(redis_client, db_session, kofi, [ama.id])
     await client.post(f"/feed/{kofi.id}/like", json={}, headers=headers_for(ama))
     r = await client.post(f"/feed/{ama.id}/like", json={}, headers=headers_for(kofi))
     assert r.status_code == 200, r.text
@@ -55,7 +58,7 @@ async def _mutual_match(client, ama, kofi) -> str:
 async def test_send_message_success(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     resp = await client.post(
         f"/messages/{match_id}",
@@ -74,7 +77,7 @@ async def test_send_message_success(client, db_session, redis_client):
 async def test_send_message_deduplicate(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     payload = {"content": "Coucou", "client_message_id": "cmid-dup"}
     responses = []
@@ -100,7 +103,7 @@ async def test_send_message_deduplicate(client, db_session, redis_client):
 async def test_send_message_blocks_insult(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     resp = await client.post(
         f"/messages/{match_id}",
@@ -116,7 +119,7 @@ async def test_send_message_blocks_insult(client, db_session, redis_client):
 async def test_send_message_blocks_link_first_message(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     resp = await client.post(
         f"/messages/{match_id}",
@@ -136,7 +139,7 @@ async def test_send_message_flags_money_request(client, db_session, redis_client
     """Le message passe (201) mais is_flagged=True en DB."""
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     resp = await client.post(
         f"/messages/{match_id}",
@@ -162,7 +165,7 @@ async def test_user_cannot_read_other_match(client, db_session, redis_client):
     """Un user non-participant reçoit 404 (pas 403) sur GET /messages/{match_id}."""
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     # Crée un 3e user (Mia) non participante.
     base = {
@@ -193,7 +196,7 @@ async def test_user_cannot_read_other_match(client, db_session, redis_client):
 async def test_header_idempotency_must_match_body(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     resp = await client.post(
         f"/messages/{match_id}",
@@ -217,7 +220,7 @@ async def test_pagination_cursor(client, db_session, redis_client):
 
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     # Envoie 10 messages. Petit sleep pour garantir des created_at distincts
     # (résolution postgres = microseconde, un tri stable avec id DESC reste
@@ -268,7 +271,7 @@ async def test_pagination_cursor(client, db_session, redis_client):
 async def test_mark_read_updates_status(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     # Kofi envoie 3 messages à Ama
     ids = []
@@ -312,7 +315,7 @@ async def test_mark_read_updates_status(client, db_session, redis_client):
 async def test_unread_count_zero_after_send_and_read(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     # Aucun message → 0
     r = await client.get(
@@ -331,7 +334,7 @@ async def test_meetup_proposal_and_accept(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
     cafe = data["spots"]["cafe21"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     # Ama propose
     tomorrow = (date.today() + timedelta(days=2)).isoformat()
@@ -366,7 +369,7 @@ async def test_meetup_proposal_refuse(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
     cafe = data["spots"]["cafe21"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     tomorrow = (date.today() + timedelta(days=3)).isoformat()
     r = await client.post(
@@ -397,7 +400,7 @@ async def test_meetup_proposer_cannot_respond_own(client, db_session, redis_clie
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
     cafe = data["spots"]["cafe21"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     tomorrow = (date.today() + timedelta(days=2)).isoformat()
     r = await client.post(
@@ -430,7 +433,7 @@ async def test_meetup_proposer_cannot_respond_own(client, db_session, redis_clie
 async def test_voice_upload(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _mutual_match(client, ama, kofi)
+    match_id = await _mutual_match(client, db_session, redis_client, ama, kofi)
 
     fake_audio = b"OggS\x00\x02" + b"\x00" * 128
     files = {"file": ("voice.webm", io.BytesIO(fake_audio), "audio/webm")}

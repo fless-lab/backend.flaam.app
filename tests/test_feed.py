@@ -30,6 +30,7 @@ from tests._feed_setup import (
     make_user,
     seed_ama_and_kofi,
     seed_city_lome,
+    seed_feed_cache,
 )
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -150,6 +151,7 @@ async def test_feed_warm_uses_cache(client, db_session, redis_client):
 async def test_like_happy_path(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
 
     resp = await client.post(
         f"/feed/{kofi.id}/like",
@@ -168,6 +170,8 @@ async def test_like_creates_mutual_match_with_icebreaker(
 ):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
+    await seed_feed_cache(redis_client, db_session, kofi, [ama.id])
 
     # Ama like Kofi (pending)
     r1 = await client.post(
@@ -195,6 +199,7 @@ async def test_like_idempotency_key_prevents_duplicate(
     """3 appels rapides avec la même clé → 1 seul like consommé, même response."""
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
 
     key = str(uuid4())
     headers = {**headers_for(ama), "X-Idempotency-Key": key}
@@ -238,6 +243,7 @@ async def test_like_quota_exhausted_returns_429(client, db_session, redis_client
         men.append(m)
 
     await db_session.commit()
+    await seed_feed_cache(redis_client, db_session, ama, [m.id for m in men])
 
     headers = headers_for(ama)
     for i in range(5):
@@ -253,6 +259,7 @@ async def test_like_updates_behavior_stats(client, db_session, redis_client):
     """Le câblage update_behavior_on_action s'exécute sur like."""
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
 
     r = await client.post(f"/feed/{kofi.id}/like", json={}, headers=headers_for(ama))
     assert r.status_code == 200
@@ -286,6 +293,32 @@ async def test_feed_cache_invalidated_on_like(
 
     # Cache supprimé
     assert await redis_client.get(f"feed:{ama.id}") is None
+
+
+async def test_like_profile_not_in_feed(client, db_session, redis_client):
+    """Liker un profil qui n'a pas été servi dans le feed → 400."""
+    data = await seed_ama_and_kofi(db_session)
+    ama, kofi = data["ama"], data["kofi"]
+
+    # Pas de feed cache pour ama → kofi n'est dans aucune source
+    resp = await client.post(
+        f"/feed/{kofi.id}/like", json={}, headers=headers_for(ama)
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "profile_not_in_feed"
+
+
+async def test_like_profile_in_feed_succeeds(client, db_session, redis_client):
+    """Liker un profil présent dans le feed → 200."""
+    data = await seed_ama_and_kofi(db_session)
+    ama, kofi = data["ama"], data["kofi"]
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
+
+    resp = await client.post(
+        f"/feed/{kofi.id}/like", json={}, headers=headers_for(ama)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "liked"
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
+from app.core.rate_limiter import rate_limit
 from app.models.user import User
 from app.schemas.spots import (
     AddSpotBody,
@@ -107,7 +108,11 @@ async def toggle_spot_visibility(
     return {"spot_id": str(us.spot_id), "is_visible": us.is_visible}
 
 
-@router.post("/me/{spot_id}/checkin", response_model=CheckinResponse)
+@router.post(
+    "/me/{spot_id}/checkin",
+    response_model=CheckinResponse,
+    dependencies=[Depends(rate_limit(max_requests=10, window_seconds=86400, name="spot_checkin"))],
+)
 async def checkin(
     spot_id: UUID,
     body: CheckinBody,

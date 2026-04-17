@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.models.match import Match
 from app.models.matching_config import MatchingConfig
 from app.models.profile import Profile
-from tests._feed_setup import headers_for, seed_ama_and_kofi
+from tests._feed_setup import headers_for, seed_ama_and_kofi, seed_feed_cache
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -30,6 +30,7 @@ async def test_like_with_target_photo_when_flag_active(
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
     await _enable_targeted_likes(db_session)
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
 
     r = await client.post(
         f"/feed/{kofi.id}/like",
@@ -60,6 +61,7 @@ async def test_like_with_target_ignored_when_flag_disabled(
     """Flag désactivé (default 0.0) → champs target ignorés silencieusement."""
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
 
     r = await client.post(
         f"/feed/{kofi.id}/like",
@@ -93,6 +95,8 @@ async def test_comment_becomes_ice_breaker_on_mutual_match(
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
     await _enable_targeted_likes(db_session)
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
+    await seed_feed_cache(redis_client, db_session, kofi, [ama.id])
 
     # Ama like Kofi avec un comment
     r1 = await client.post(
@@ -129,6 +133,7 @@ async def test_like_on_prompt_increments_like_count(
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
     await _enable_targeted_likes(db_session)
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
 
     # Kofi a un prompt "maquis" (voir _feed_setup.seed_ama_and_kofi)
     r = await client.post(

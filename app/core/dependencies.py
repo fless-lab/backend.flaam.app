@@ -8,7 +8,8 @@ from typing import AsyncIterator
 from uuid import UUID
 
 import redis.asyncio as aioredis
-from fastapi import Depends, Header, status
+from fastapi import Depends, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
@@ -16,6 +17,12 @@ from app.core.security import JWTError, decode_token
 from app.db.redis import redis_pool
 from app.db.session import async_session
 from app.models.user import User
+
+bearer_scheme = HTTPBearer(
+    scheme_name="JWT",
+    description="Access token JWT. Format : Bearer {token}",
+    auto_error=False,
+)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
@@ -27,17 +34,13 @@ def get_redis() -> aioredis.Redis:
     return redis_pool.client
 
 
-def _extract_bearer_token(authorization: str | None) -> str:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise AppException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
-    return authorization.split(" ", 1)[1].strip()
-
-
 async def get_current_user(
-    authorization: str | None = Header(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    token = _extract_bearer_token(authorization)
+    if credentials is None:
+        raise AppException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
+    token = credentials.credentials
     try:
         payload = decode_token(token)
     except JWTError:

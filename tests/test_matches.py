@@ -18,6 +18,7 @@ from tests._feed_setup import (
     make_user,
     seed_ama_and_kofi,
     seed_city_lome,
+    seed_feed_cache,
 )
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -30,8 +31,10 @@ def _reset_geo_cache():
     geo_scorer.reset_proximity_cache()
 
 
-async def _create_mutual_match(client, db_session, ama, kofi) -> str:
+async def _create_mutual_match(client, db_session, redis_client, ama, kofi) -> str:
     """Ama like Kofi, puis Kofi like Ama → retourne le match_id."""
+    await seed_feed_cache(redis_client, db_session, ama, [kofi.id])
+    await seed_feed_cache(redis_client, db_session, kofi, [ama.id])
     await client.post(f"/feed/{kofi.id}/like", json={}, headers=headers_for(ama))
     r = await client.post(f"/feed/{ama.id}/like", json={}, headers=headers_for(kofi))
     assert r.status_code == 200
@@ -48,7 +51,7 @@ async def _create_mutual_match(client, db_session, ama, kofi) -> str:
 async def test_list_matches_after_mutual(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _create_mutual_match(client, db_session, ama, kofi)
+    match_id = await _create_mutual_match(client, db_session, redis_client, ama, kofi)
 
     resp = await client.get("/matches", headers=headers_for(ama))
     assert resp.status_code == 200
@@ -75,7 +78,7 @@ async def test_list_matches_empty(client, db_session, redis_client):
 async def test_match_detail_returns_icebreaker(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _create_mutual_match(client, db_session, ama, kofi)
+    match_id = await _create_mutual_match(client, db_session, redis_client, ama, kofi)
 
     resp = await client.get(f"/matches/{match_id}", headers=headers_for(ama))
     assert resp.status_code == 200, resp.text
@@ -104,7 +107,7 @@ async def test_match_detail_404_if_not_mine(client, db_session, redis_client):
 async def test_unmatch_sets_status_unmatched(client, db_session, redis_client):
     data = await seed_ama_and_kofi(db_session)
     ama, kofi = data["ama"], data["kofi"]
-    match_id = await _create_mutual_match(client, db_session, ama, kofi)
+    match_id = await _create_mutual_match(client, db_session, redis_client, ama, kofi)
 
     resp = await client.delete(f"/matches/{match_id}", headers=headers_for(ama))
     assert resp.status_code == 200
@@ -171,6 +174,7 @@ async def test_likes_received_free_returns_count_and_preview(
         db_session, is_premium=False, n_likers=3
     )
     for m in likers:
+        await seed_feed_cache(redis_client, db_session, m, [ama.id])
         r = await client.post(
             f"/feed/{ama.id}/like", json={}, headers=headers_for(m)
         )
@@ -197,6 +201,7 @@ async def test_likes_received_free_preview_has_blurred_photos(
         db_session, is_premium=False, n_likers=2
     )
     for m in likers:
+        await seed_feed_cache(redis_client, db_session, m, [ama.id])
         r = await client.post(
             f"/feed/{ama.id}/like", json={}, headers=headers_for(m)
         )
@@ -233,12 +238,14 @@ async def test_likes_received_premium_filters_matched_and_skipped(
 
     # Chaque liker like Ama
     for m in likers:
+        await seed_feed_cache(redis_client, db_session, m, [ama.id])
         r = await client.post(
             f"/feed/{ama.id}/like", json={}, headers=headers_for(m)
         )
         assert r.status_code == 200
 
     # Ama skip L0
+    await seed_feed_cache(redis_client, db_session, ama, [l.id for l in likers])
     await client.post(
         f"/feed/{likers[0].id}/skip", json={}, headers=headers_for(ama)
     )

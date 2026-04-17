@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
+from app.core.rate_limiter import rate_limit
 from app.models.user import User
 from app.schemas.photos import PhotoReorderBody, PhotoResponse
 from app.services import photo_service
@@ -35,6 +36,7 @@ def _photo_dict(p) -> dict:
     "",
     response_model=PhotoResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit(max_requests=10, window_seconds=86400, name="photo_upload"))],
 )
 async def upload(
     file: UploadFile = File(...),

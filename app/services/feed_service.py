@@ -555,6 +555,45 @@ async def _incr_daily_likes(
     return int(count)
 
 
+async def _assert_profile_in_feed(
+    user_id: UUID,
+    target_id: UUID,
+    redis_client: aioredis.Redis,
+    db: AsyncSession,
+    lang: str = "fr",
+) -> None:
+    """Vérifie que target_id a été servi dans le feed du user (Redis → DB fallback)."""
+    # 1. Check Redis feed cache
+    raw = await redis_client.get(FEED_CACHE_KEY.format(user_id=str(user_id)))
+    if raw:
+        try:
+            data = json.loads(raw)
+            all_ids = set(data.get("profile_ids", []))
+            all_ids.update(data.get("wildcards", []))
+            all_ids.update(data.get("new_users", []))
+            if str(target_id) in all_ids:
+                return
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # 2. Fallback DB FeedCache (today or yesterday)
+    yesterday = _today_utc() - timedelta(days=1)
+    stmt = select(FeedCache).where(
+        FeedCache.user_id == user_id,
+        FeedCache.feed_date >= yesterday,
+    )
+    result = await db.execute(stmt)
+    for fc in result.scalars():
+        all_ids_db: set[UUID] = set(fc.profile_ids or [])
+        all_ids_db.update(fc.wildcard_ids or [])
+        all_ids_db.update(fc.new_user_ids or [])
+        if target_id in all_ids_db:
+            return
+
+    # 3. Ni Redis ni BD → reject
+    raise FlaamError("profile_not_in_feed", 400, lang)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # POST /feed/{id}/like
 # ══════════════════════════════════════════════════════════════════════
@@ -589,6 +628,9 @@ async def like_profile(
         or target.is_deleted
     ):
         raise AppException(status.HTTP_404_NOT_FOUND, "target_not_available")
+
+    # 2b. Feed guard — target must have been served in user's feed
+    await _assert_profile_in_feed(user.id, target_id, redis_client, db, lang)
 
     # 3. Quota daily_likes
     is_premium = bool(user.is_premium)
