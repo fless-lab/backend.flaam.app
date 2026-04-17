@@ -50,6 +50,34 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Worker Celery : consomme les tâches enfilées par l'API (photos
+  # modération, RGPD purge, etc.) et celles planifiées par beat.
+  celery-worker:
+    build: .
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - uploads_data:/app/uploads
+    restart: unless-stopped
+
+  # Beat scheduler : enfile les tâches périodiques (feeds 3h, reminders,
+  # cleanup, emergency-sms, etc.). Un seul conteneur dans toute la stack.
+  celery-beat:
+    build: .
+    command: celery -A app.celery_app beat --loglevel=info
+    env_file: .env
+    depends_on:
+      - celery-worker
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

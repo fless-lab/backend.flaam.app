@@ -60,6 +60,14 @@ _NOTIF_TITLES: dict[str, dict[str, str]] = {
         "fr": "Vérification à refaire",
         "en": "Re-verification needed",
     },
+    "notif_premium_expired": {
+        "fr": "Premium expiré",
+        "en": "Premium expired",
+    },
+    "notif_reply_reminder": {
+        "fr": "Réponds à ton match",
+        "en": "Reply to your match",
+    },
 }
 
 
@@ -71,6 +79,8 @@ _DEEP_LINKS: dict[str, str] = {
     "notif_event_reminder": "flaam://events/{event_id}",
     "notif_likes_received_count": "flaam://likes",
     "notif_selfie_required": "flaam://profile/selfie",
+    "notif_premium_expired": "flaam://subscription",
+    "notif_reply_reminder": "flaam://chat/{match_id}",
 }
 
 
@@ -159,6 +169,8 @@ _TYPE_TO_PREF_FIELD: dict[str, str | None] = {
     "notif_event_reminder": "events",
     "notif_likes_received_count": None,  # Toujours envoyé (pas de flag dédié)
     "notif_selfie_required": None,  # Safety/compliance — bypass prefs
+    "notif_premium_expired": None,  # Info compte — toujours envoyé
+    "notif_reply_reminder": "reply_reminders",
 }
 
 

@@ -228,11 +228,13 @@ async def test_emergency_timer_armed_sets_redis(
     body = resp.json()
     assert body["status"] == "armed"
 
-    # La clé Redis existe avec un TTL > 0
+    # La clé Redis existe avec un TTL > 0. Depuis S12 le TTL inclut 24h
+    # de grâce pour que le task send_emergency_sms puisse lire la clé
+    # APRÈS expiration logique → TTL max = timer_seconds + 86400.
     key = f"safety:timer:{ama.id}"
     ttl = await redis_client.ttl(key)
     assert ttl > 0
-    assert ttl <= 3 * 3600
+    assert ttl <= 3 * 3600 + 86400
 
 
 async def test_emergency_timer_cancel_clears_redis(

@@ -23,6 +23,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.celery_app import celery_app
 from app.models.event import Event
 from app.models.event_registration import EventRegistration
 from app.models.user import User
@@ -92,9 +93,35 @@ async def weekly_event_digest(db: AsyncSession | None = None) -> None:
     )
 
 
+# ══════════════════════════════════════════════════════════════════════
+# Celery wrappers (§S12 — logique métier câblée en S13)
+# ══════════════════════════════════════════════════════════════════════
+
+
+@celery_app.task(name="app.tasks.event_tasks.event_reminder")
+def event_reminder_task() -> dict:
+    log.info("event_reminder_tick", note="impl S13")
+    return {"status": "stub"}
+
+
+@celery_app.task(name="app.tasks.event_tasks.event_status_updater")
+def event_status_updater_task() -> dict:
+    log.info("event_status_updater_tick", note="impl S13")
+    return {"status": "stub"}
+
+
+@celery_app.task(name="app.tasks.event_tasks.weekly_event_digest")
+def weekly_event_digest_task() -> dict:
+    log.info("weekly_event_digest_tick", note="impl S13")
+    return {"status": "stub"}
+
+
 __all__ = [
     "event_reminder",
     "event_status_updater",
     "send_post_event_nudge",
     "weekly_event_digest",
+    "event_reminder_task",
+    "event_status_updater_task",
+    "weekly_event_digest_task",
 ]

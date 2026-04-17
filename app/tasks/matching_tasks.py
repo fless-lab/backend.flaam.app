@@ -29,7 +29,10 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.celery_app import celery_app
 from app.core.constants import MATCHING_ACTIVE_WINDOW_DAYS
+from app.db.redis import redis_pool
+from app.db.session import async_session
 from app.models.city import City
 from app.models.user import User
 from app.services.feed_service import _write_feed_cache
@@ -199,8 +202,35 @@ async def generate_all_feeds(
     }
 
 
+# ══════════════════════════════════════════════════════════════════════
+# Celery wrappers (§S12)
+# ══════════════════════════════════════════════════════════════════════
+
+
+@celery_app.task(name="app.tasks.matching_tasks.generate_all_feeds")
+def generate_all_feeds_task() -> dict:
+    """Entry point Celery Beat (daily 3h UTC)."""
+
+    async def _run():
+        async with async_session() as db:
+            result = await generate_all_feeds(
+                db,
+                redis_pool.client,
+                trigger_utc_hour=datetime.now(timezone.utc).hour,
+            )
+        return {
+            "cities_processed": [str(x) for x in result["cities_processed"]],
+            "cities_skipped": [str(x) for x in result["cities_skipped"]],
+            "users_processed": result["users_processed"],
+            "duration_s": result["duration_s"],
+        }
+
+    return asyncio.run(_run())
+
+
 __all__ = [
     "generate_single_feed",
     "generate_all_feeds",
+    "generate_all_feeds_task",
     "_local_hour_for_city",
 ]

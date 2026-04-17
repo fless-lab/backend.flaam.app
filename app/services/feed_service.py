@@ -38,6 +38,7 @@ from app.core.constants import (
     MATCHING_FEED_SIZE,
     MATCHING_SKIP_COOLDOWN_DAYS,
 )
+from app.core.cache import cache_invalidate
 from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.core.i18n import t
@@ -754,6 +755,10 @@ async def like_profile(
     await _store_idempotent_response(
         "like", user.id, idem_key, response, redis_client
     )
+    # Invalidation du cache feed : le target ne doit plus réapparaître.
+    await cache_invalidate(
+        FEED_CACHE_KEY.format(user_id=str(user.id)), redis_client
+    )
 
     log.info(
         "feed_like",
@@ -846,6 +851,10 @@ async def skip_profile(
     await db.commit()
     await _store_idempotent_response(
         "skip", user.id, idem_key, response, redis_client
+    )
+    # Invalidation du cache feed : le target skippé ne doit plus réapparaître.
+    await cache_invalidate(
+        FEED_CACHE_KEY.format(user_id=str(user.id)), redis_client
     )
     return response
 

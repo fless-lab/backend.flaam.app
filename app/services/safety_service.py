@@ -8,12 +8,19 @@ Expose :
 - block_user()             : Block bidirectionnel + update AccountHistory
 - unblock_user()           : retire le Block (ne désarme PAS les blocked_by_hashes)
 - share_date()             : SMS (ou WhatsApp) via sms_service
-- start_emergency_timer()  : Redis key TTL = timer_hours * 3600
+- start_emergency_timer()  : Redis key, TTL = timer + 24h grâce
 - cancel_emergency_timer() : DEL de la key
 
-Le timer d'urgence n'envoie PAS de SMS en Session 9 : on stocke l'état
-Redis + on logge. L'envoi différé (quand la key expire) viendra en
-Session 11 avec Celery beat qui pollera les timers expirés.
+Timer d'urgence — pattern de stockage (Session 12) :
+
+Le task Celery `emergency_tasks.send_emergency_sms` tourne toutes les
+minutes et SCAN `safety:timer:*`. Il doit pouvoir lire la clé APRÈS
+que le timer logique ait expiré, sinon il ne verra jamais rien (Redis
+TTL = disparition immédiate de la clé).
+
+Donc le TTL Redis = `timer_hours*3600 + 86400` (24h de grâce). Le task
+compare `expires_at_utc` au wall-clock pour décider d'envoyer le SMS,
+puis supprime la clé.
 """
 
 import json
@@ -41,6 +48,9 @@ log = structlog.get_logger()
 # ── Redis keys ────────────────────────────────────────────────────────
 
 TIMER_KEY = "safety:timer:{user_id}"
+# Grâce supplémentaire au-delà du timer logique pour que le task Celery
+# puisse encore lire la clé expirée (task tourne toutes les minutes).
+TIMER_GRACE_SECONDS = 24 * 3600
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -257,6 +267,15 @@ async def share_date(
 # ══════════════════════════════════════════════════════════════════════
 
 
+def _user_display_name(user: User) -> str:
+    """Même heuristique que share_date — first_name > display_name > fallback."""
+    return (
+        user.first_name
+        or (user.profile.display_name if user.profile else None)
+        or "Ton contact Flaam"
+    )
+
+
 async def start_emergency_timer(
     *,
     user: User,
@@ -269,21 +288,26 @@ async def start_emergency_timer(
     redis: aioredis.Redis,
 ) -> datetime:
     """
-    Stocke l'état du timer en Redis avec TTL = timer_hours * 3600.
-    Si la clé expire sans cancel → Celery beat (Session 11) détecte
-    et envoie le SMS d'alerte au contact.
+    Stocke l'état du timer en Redis.
+
+    TTL = timer_hours*3600 + TIMER_GRACE_SECONDS. Le task Celery de S12
+    lit expires_at_utc pour décider d'envoyer le SMS d'alerte. Sans la
+    grâce, la clé disparaîtrait avant qu'un task 1-minute puisse la
+    voir expirer.
     """
-    ttl_seconds = timer_hours * 3600
+    timer_seconds = timer_hours * 3600
     now = datetime.now(timezone.utc)
-    expires_at = datetime.fromtimestamp(
-        now.timestamp() + ttl_seconds, tz=timezone.utc
+    expires_at_utc = datetime.fromtimestamp(
+        now.timestamp() + timer_seconds, tz=timezone.utc
     )
     payload = {
         "user_id": str(user.id),
+        "user_name": _user_display_name(user),
         "contact_phone": contact_phone,
         "contact_name": contact_name,
         "started_at": now.isoformat(),
-        "expires_at": expires_at.isoformat(),
+        "expires_at": expires_at_utc.isoformat(),
+        "expires_at_utc": expires_at_utc.isoformat(),
         "latitude": latitude,
         "longitude": longitude,
         "meeting_place": meeting_place,
@@ -291,15 +315,15 @@ async def start_emergency_timer(
     await redis.set(
         TIMER_KEY.format(user_id=str(user.id)),
         json.dumps(payload),
-        ex=ttl_seconds,
+        ex=timer_seconds + TIMER_GRACE_SECONDS,
     )
     log.info(
         "emergency_timer_armed",
         user_id=str(user.id),
-        expires_at=expires_at.isoformat(),
+        expires_at=expires_at_utc.isoformat(),
         hours=timer_hours,
     )
-    return expires_at
+    return expires_at_utc
 
 
 async def cancel_emergency_timer(
@@ -322,4 +346,6 @@ __all__ = [
     "share_date",
     "start_emergency_timer",
     "cancel_emergency_timer",
+    "TIMER_KEY",
+    "TIMER_GRACE_SECONDS",
 ]

@@ -263,6 +263,31 @@ async def test_like_updates_behavior_stats(client, db_session, redis_client):
     assert int(stats.get("profiles_viewed", 0)) == 1
 
 
+async def test_feed_cache_invalidated_on_like(
+    client, db_session, redis_client
+):
+    """
+    Après un like, le cache feed de l'auteur est invalidé.
+    La prochaine lecture repasse par la DB / pipeline.
+    """
+    data = await _seed_pool_for_ama(db_session)
+    ama = data["ama"]
+
+    # Chauffe le cache
+    r1 = await client.get("/feed", headers=headers_for(ama))
+    assert r1.status_code == 200
+    assert await redis_client.get(f"feed:{ama.id}") is not None
+
+    target_id = r1.json()["profiles"][0]["user_id"]
+    lr = await client.post(
+        f"/feed/{target_id}/like", json={}, headers=headers_for(ama)
+    )
+    assert lr.status_code == 200
+
+    # Cache supprimé
+    assert await redis_client.get(f"feed:{ama.id}") is None
+
+
 # ══════════════════════════════════════════════════════════════════════
 # POST /feed/{id}/skip
 # ══════════════════════════════════════════════════════════════════════
