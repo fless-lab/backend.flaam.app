@@ -961,12 +961,13 @@ def _first_letter(name: str | None) -> str:
     return name.strip()[:1].upper() or "?"
 
 
-def _first_thumbnail(user_obj: User) -> str | None:
+def _first_blurred(user_obj: User) -> str | None:
+    """Return the anonymized blurred URL (no user_id in path)."""
     for p in sorted(
         [p for p in (user_obj.photos or []) if p.moderation_status != "rejected"],
         key=lambda ph: ph.display_order,
     ):
-        return p.thumbnail_url
+        return p.blurred_url
     return None
 
 
@@ -1066,10 +1067,11 @@ async def get_likes_received(
             continue
         if not other.is_visible or other.is_banned or other.is_deleted:
             continue
-        # Thumbnail 150px comme "flou" server-side (MVP, voir business-model).
+        # Server-side GaussianBlur (200px, radius 30) in /uploads/blurred/
+        # — no user_id in URL, no way to trace back to the person.
         preview.append(
             {
-                "blurred_photo_url": _first_thumbnail(other),
+                "blurred_photo_url": _first_blurred(other),
                 "first_letter": _first_letter(other.profile.display_name),
             }
         )

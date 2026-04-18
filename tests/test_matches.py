@@ -225,6 +225,87 @@ async def test_likes_received_free_preview_has_blurred_photos(
     assert letters == {"L"}
 
 
+async def test_likes_received_free_no_original_photo_url(
+    client, db_session, redis_client
+):
+    """Free preview must NOT contain the original photo URL (security)."""
+    ama, likers, _ = await _seed_ama_with_likers(
+        db_session, is_premium=False, n_likers=1
+    )
+    for m in likers:
+        await seed_feed_cache(redis_client, db_session, m, [ama.id])
+        await client.post(f"/feed/{ama.id}/like", json={}, headers=headers_for(m))
+
+    resp = await client.get("/matches/likes-received", headers=headers_for(ama))
+    assert resp.status_code == 200
+    body = resp.json()
+    raw = str(body)
+    # No original/medium/thumbnail URLs leak
+    assert "original" not in raw.lower() or "original_url" not in raw
+    assert "medium_url" not in raw
+    assert "thumbnail_url" not in raw
+
+
+async def test_likes_received_free_has_anonymized_blurred_url(
+    client, db_session, redis_client
+):
+    """Blurred URL must be in /uploads/blurred/ (no user_id in path)."""
+    ama, likers, _ = await _seed_ama_with_likers(
+        db_session, is_premium=False, n_likers=1
+    )
+    for m in likers:
+        await seed_feed_cache(redis_client, db_session, m, [ama.id])
+        await client.post(f"/feed/{ama.id}/like", json={}, headers=headers_for(m))
+
+    resp = await client.get("/matches/likes-received", headers=headers_for(ama))
+    body = resp.json()
+    for item in body["preview"]:
+        url = item.get("blurred_photo_url")
+        if url:
+            assert "/blurred/" in url, "Blur URL must be in /uploads/blurred/"
+            # Must NOT contain any user_id
+            assert str(likers[0].id) not in url, "Blur URL must not contain user_id"
+
+
+async def test_likes_received_free_no_user_id(
+    client, db_session, redis_client
+):
+    """Free response must never expose user_id of likers."""
+    ama, likers, _ = await _seed_ama_with_likers(
+        db_session, is_premium=False, n_likers=2
+    )
+    for m in likers:
+        await seed_feed_cache(redis_client, db_session, m, [ama.id])
+        await client.post(f"/feed/{ama.id}/like", json={}, headers=headers_for(m))
+
+    resp = await client.get("/matches/likes-received", headers=headers_for(ama))
+    body = resp.json()
+    raw = str(body)
+    for liker in likers:
+        assert str(liker.id) not in raw, f"user_id {liker.id} leaked in free response"
+
+
+async def test_likes_received_premium_has_original_url(
+    client, db_session, redis_client
+):
+    """Premium response must contain full profile with original photo URL."""
+    ama, likers, _ = await _seed_ama_with_likers(
+        db_session, is_premium=True, n_likers=1
+    )
+    for m in likers:
+        await seed_feed_cache(redis_client, db_session, m, [ama.id])
+        await client.post(f"/feed/{ama.id}/like", json={}, headers=headers_for(m))
+
+    resp = await client.get("/matches/likes-received", headers=headers_for(ama))
+    body = resp.json()
+    assert body["is_premium_user"] is True
+    assert body["profiles"] is not None
+    if body["profiles"]:
+        profile = body["profiles"][0]
+        assert "user_id" in profile
+        assert "display_name" in profile
+
+
 async def test_likes_received_premium_filters_matched_and_skipped(
     client, db_session, redis_client
 ):

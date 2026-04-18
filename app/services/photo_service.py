@@ -29,7 +29,7 @@ from uuid import UUID
 
 import structlog
 from fastapi import UploadFile, status
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageFilter, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,6 +59,8 @@ ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP", "MPO"}  # MPO = iPhone HDR (traité co
 ORIGINAL_MAX_SIDE = 1200
 MEDIUM_MAX_SIDE = 600
 THUMBNAIL_SIDE = 150
+BLUR_SIDE = 200
+BLUR_RADIUS = 30
 WEBP_QUALITY = 85
 
 
@@ -70,8 +72,20 @@ def _storage_dir(user_id: UUID) -> Path:
     return path
 
 
+def _blurred_dir() -> Path:
+    """Anonymized blur directory — no user_id in path."""
+    path = Path(settings.storage_root) / "blurred"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _public_url(user_id: UUID, filename: str) -> str:
     return f"/uploads/{user_id}/{filename}"
+
+
+def _blurred_public_url(filename: str) -> str:
+    """URL without user_id so it can't be traced back."""
+    return f"/uploads/blurred/{filename}"
 
 
 def _scale_to_max(img: Image.Image, max_side: int) -> Image.Image:
@@ -105,6 +119,24 @@ def _extract_dominant_color(img: Image.Image) -> str:
     palette = quant.getpalette() or [0, 0, 0]
     r, g, b = palette[0], palette[1], palette[2]
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _generate_blur(img: Image.Image, side: int = BLUR_SIDE) -> Image.Image:
+    """
+    Generate a heavily blurred square image for free-tier likes preview.
+
+    The blur is strong enough that the person is unrecognizable (silhouette
+    only) but the overall color palette is preserved for visual appeal.
+    Stored in /uploads/blurred/ (no user_id in path) to prevent identification.
+    """
+    # Center-crop to square, resize down, then blur aggressively
+    w, h = img.size
+    s = min(w, h)
+    left = (w - s) // 2
+    top = (h - s) // 2
+    cropped = img.crop((left, top, left + s, top + s))
+    small = cropped.resize((side, side), Image.Resampling.LANCZOS)
+    return small.filter(ImageFilter.GaussianBlur(radius=BLUR_RADIUS))
 
 
 def _save_webp(img: Image.Image, path: Path) -> int:
@@ -173,23 +205,27 @@ async def upload_photo(
 
     photo_id = uuid.uuid4()
     dir_ = _storage_dir(user.id)
+    blur_dir = _blurred_dir()
     original_path = dir_ / f"{photo_id}_original.webp"
     medium_path = dir_ / f"{photo_id}_medium.webp"
     thumb_path = dir_ / f"{photo_id}_thumb.webp"
+    blur_path = blur_dir / f"{photo_id}_blur.webp"
 
     try:
         original_img = _scale_to_max(source, ORIGINAL_MAX_SIDE)
         medium_img = _scale_to_max(source, MEDIUM_MAX_SIDE)
         thumb_img = _center_square_crop(source, THUMBNAIL_SIDE)
+        blur_img = _generate_blur(source)
 
         original_size = _save_webp(original_img, original_path)
         _save_webp(medium_img, medium_path)
         _save_webp(thumb_img, thumb_path)
+        _save_webp(blur_img, blur_path)
 
         dominant = _extract_dominant_color(source)
     except Exception:
         # Clean up tout fichier créé avant remontée
-        for p in (original_path, medium_path, thumb_path):
+        for p in (original_path, medium_path, thumb_path, blur_path):
             try:
                 p.unlink(missing_ok=True)
             except OSError:
@@ -202,6 +238,7 @@ async def upload_photo(
         original_url=_public_url(user.id, original_path.name),
         thumbnail_url=_public_url(user.id, thumb_path.name),
         medium_url=_public_url(user.id, medium_path.name),
+        blurred_url=_blurred_public_url(blur_path.name),
         display_order=target_order,
         content_hash=content_hash,
         width=original_img.width,
@@ -299,6 +336,12 @@ def _unlink_photo_files(user_id: UUID, photo_id: UUID) -> None:
             path.unlink(missing_ok=True)
         except OSError:
             pass
+    # Blur lives in the anonymized directory
+    blur_path = Path(settings.storage_root) / "blurred" / f"{photo_id}_blur.webp"
+    try:
+        blur_path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 # ── Reorder ──────────────────────────────────────────────────────────
@@ -362,4 +405,46 @@ def get_photo_disk_path(photo: Photo) -> str:
     return str(Path(settings.storage_root) / relative)
 
 
-__all__ = ["upload_photo", "delete_photo", "reorder_photos", "get_photo_disk_path"]
+async def backfill_blurred_photos(db: AsyncSession) -> int:
+    """
+    Generate blurred variants for all existing photos that don't have one.
+    Called once via management command or migration.
+    """
+    result = await db.execute(
+        select(Photo).where(
+            Photo.is_deleted.is_(False),
+            Photo.blurred_url.is_(None),
+        )
+    )
+    photos = result.scalars().all()
+    count = 0
+    blur_dir = _blurred_dir()
+
+    for photo in photos:
+        disk_path = get_photo_disk_path(photo)
+        try:
+            source = Image.open(disk_path)
+            source.load()
+            if source.mode not in ("RGB", "RGBA"):
+                source = source.convert("RGB")
+            blur_img = _generate_blur(source)
+            blur_path = blur_dir / f"{photo.id}_blur.webp"
+            _save_webp(blur_img, blur_path)
+            photo.blurred_url = _blurred_public_url(blur_path.name)
+            count += 1
+        except Exception:
+            log.warning("backfill_blur_failed", photo_id=str(photo.id))
+            continue
+
+    await db.commit()
+    log.info("backfill_blurred_photos_done", count=count)
+    return count
+
+
+__all__ = [
+    "upload_photo",
+    "delete_photo",
+    "reorder_photos",
+    "get_photo_disk_path",
+    "backfill_blurred_photos",
+]

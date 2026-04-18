@@ -21,6 +21,7 @@ class Photo(Base, UUIDMixin, TimestampMixin):
     original_url: Mapped[str] = mapped_column(String(500), nullable=False)
     thumbnail_url: Mapped[str] = mapped_column(String(500), nullable=False)
     medium_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    blurred_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     display_order: Mapped[int] = mapped_column(Integer, nullable=False)
     is_verified_selfie: Mapped[bool] = mapped_column(Boolean, default=False)
