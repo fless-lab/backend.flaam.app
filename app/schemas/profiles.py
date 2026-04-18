@@ -85,9 +85,9 @@ class MyProfileResponse(BaseModel):
     birth_date: date
     gender: Gender
     seeking_gender: SeekingGender
-    intention: Intention
-    sector: Sector
-    rhythm: Rhythm | None
+    intention: Intention | None = None
+    sector: Sector | None = None
+    rhythm: Rhythm | None = None
     prompts: list[PromptEntry]
     tags: list[str]
     languages: list[str]
@@ -111,9 +111,9 @@ class OtherProfileResponse(BaseModel):
     display_name: str
     age: int
     gender: Gender
-    intention: Intention
-    sector: Sector
-    rhythm: Rhythm | None
+    intention: Intention | None = None
+    sector: Sector | None = None
+    rhythm: Rhythm | None = None
     prompts: list[PromptEntry]
     tags: list[str]
     languages: list[str]

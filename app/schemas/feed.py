@@ -41,9 +41,9 @@ class FeedProfileItem(BaseModel):
     user_id: UUID
     display_name: str
     age: int
-    intention: str
-    sector: str
-    rhythm: str | None
+    intention: str | None = None
+    sector: str | None = None
+    rhythm: str | None = None
 
     photos: list[PhotoResponse]
     prompts: list[FeedPromptEntry]
