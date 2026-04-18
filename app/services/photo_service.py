@@ -330,6 +330,24 @@ async def reorder_photos(
     return sorted(photos, key=lambda p: p.display_order)
 
 
+async def swap_photos(
+    user: User, photo_id_a: UUID, photo_id_b: UUID, db: AsyncSession
+) -> list[Photo]:
+    """Swap display_order of two photos owned by the same user."""
+    result = await db.execute(select(Photo).where(Photo.user_id == user.id))
+    photos = list(result.scalars().all())
+
+    by_id = {p.id: p for p in photos}
+    a = by_id.get(photo_id_a)
+    b = by_id.get(photo_id_b)
+    if a is None or b is None:
+        raise AppException(status.HTTP_404_NOT_FOUND, "photo_not_found")
+
+    a.display_order, b.display_order = b.display_order, a.display_order
+    await db.commit()
+    return sorted(photos, key=lambda p: p.display_order)
+
+
 def get_photo_disk_path(photo: Photo) -> str:
     """Reconstruit le chemin disque depuis l'URL stockee en BD."""
     # URL format: {public_base_url}/uploads/{user_id}/{filename}

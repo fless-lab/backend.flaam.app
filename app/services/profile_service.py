@@ -74,6 +74,7 @@ def _profile_to_my_dict(user: User, profile: Profile) -> dict[str, Any]:
                 "dominant_color": p.dominant_color,
             }
             for p in (user.photos or [])
+            if not p.is_verified_selfie
         ],
         "profile_completeness": profile.profile_completeness,
         "is_selfie_verified": user.is_selfie_verified,
@@ -113,7 +114,7 @@ def _profile_to_public_dict(user: User, profile: Profile) -> dict[str, Any]:
                 "dominant_color": p.dominant_color,
             }
             for p in (user.photos or [])
-            if p.moderation_status != "rejected"
+            if not p.is_verified_selfie and p.moderation_status != "rejected"
         ],
         "is_selfie_verified": user.is_selfie_verified,
     }

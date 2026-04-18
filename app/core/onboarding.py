@@ -86,12 +86,35 @@ def _photos_count(photos: list["Photo"] | None) -> int:
     return len(photos) if photos else 0
 
 
+def _step_index(step: OnboardingStep) -> int:
+    """Index of a step in ONBOARDING_FLOW."""
+    return ONBOARDING_FLOW.index(step)
+
+
+def _is_step_passed(step: OnboardingStep, user: "User") -> bool:
+    """True if user.onboarding_step is strictly after this step in the flow.
+
+    This covers skipped steps: the skip endpoint advances
+    user.onboarding_step past the skipped step, so any step before
+    the current position is either completed or skipped.
+    """
+    try:
+        current = OnboardingStep(user.onboarding_step)
+    except ValueError:
+        return False
+    return _step_index(current) > _step_index(step)
+
+
 def is_step_done(
     step: OnboardingStep,
     user: "User",
     profile: "Profile | None",
 ) -> bool:
-    """True si l'étape est déjà satisfaite."""
+    """True si l'étape est déjà satisfaite (ou a été skippée)."""
+    # If onboarding has already advanced past this step, it's done
+    if _is_step_passed(step, user):
+        return True
+
     if step is OnboardingStep.CITY_SELECTION:
         return user.city_id is not None
     if step is OnboardingStep.PHONE_VERIFIED:
@@ -117,8 +140,6 @@ def is_step_done(
     if step is OnboardingStep.SPOTS:
         return bool(user.user_spots)
     if step is OnboardingStep.NOTIFICATION_PERMISSION:
-        # Pas de champ DB — le client signale via `/onboarding/skip` OU
-        # en liant des notification_prefs. On se base sur `notification_prefs`.
         return user.notification_prefs is not None
     if step is OnboardingStep.COMPLETED:
         return user.onboarding_step == OnboardingStep.COMPLETED.value

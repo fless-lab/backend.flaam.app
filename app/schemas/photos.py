@@ -30,4 +30,11 @@ class PhotoReorderBody(BaseModel):
     order: list[UUID] = Field(..., min_length=1, max_length=6)
 
 
-__all__ = ["PhotoResponse", "PhotoReorderBody"]
+class PhotoSwapBody(BaseModel):
+    """Swap display_order of two photos."""
+
+    photo_id_a: UUID
+    photo_id_b: UUID
+
+
+__all__ = ["PhotoResponse", "PhotoReorderBody", "PhotoSwapBody"]

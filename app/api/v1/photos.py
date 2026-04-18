@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_user, get_db
 from app.core.rate_limiter import rate_limit
 from app.models.user import User
-from app.schemas.photos import PhotoReorderBody, PhotoResponse
+from app.schemas.photos import PhotoReorderBody, PhotoResponse, PhotoSwapBody
 from app.services import photo_service
 
 router = APIRouter(prefix="/photos", tags=["photos"])
@@ -65,6 +65,18 @@ async def reorder(
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     photos = await photo_service.reorder_photos(user, body.order, db)
+    return [_photo_dict(p) for p in photos]
+
+
+@router.patch("/swap", response_model=list[PhotoResponse])
+async def swap(
+    body: PhotoSwapBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    photos = await photo_service.swap_photos(
+        user, body.photo_id_a, body.photo_id_b, db,
+    )
     return [_photo_dict(p) for p in photos]
 
 

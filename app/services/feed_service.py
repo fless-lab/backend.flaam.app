@@ -146,7 +146,7 @@ async def _load_users_full(
 
 def _photo_dicts(user: User) -> list[dict]:
     photos = sorted(
-        [p for p in (user.photos or []) if p.moderation_status != "rejected"],
+        [p for p in (user.photos or []) if not p.is_verified_selfie and p.moderation_status != "rejected"],
         key=lambda p: p.display_order,
     )
     return [
