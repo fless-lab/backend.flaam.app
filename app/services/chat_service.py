@@ -355,7 +355,7 @@ async def send_voice(
     path = voice_dir / f"{msg_id}.webm"
     path.write_bytes(data)
 
-    public_url = f"{settings.public_base_url}/uploads/{sender.id}/voice/{msg_id}.webm"
+    public_url = f"/uploads/{sender.id}/voice/{msg_id}.webm"
 
     now = datetime.now(timezone.utc)
     msg = Message(

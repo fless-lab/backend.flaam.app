@@ -71,7 +71,7 @@ def _storage_dir(user_id: UUID) -> Path:
 
 
 def _public_url(user_id: UUID, filename: str) -> str:
-    return f"{settings.public_base_url.rstrip('/')}/uploads/{user_id}/{filename}"
+    return f"/uploads/{user_id}/{filename}"
 
 
 def _scale_to_max(img: Image.Image, max_side: int) -> Image.Image:
