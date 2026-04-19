@@ -41,7 +41,7 @@ from app.schemas.profiles import (
     VisibilityBody,
     VisibilityResponse,
 )
-from app.services import export_service, photo_service, profile_service
+from app.services import export_service, feed_service, photo_service, profile_service
 
 log = structlog.get_logger()
 settings = get_settings()
@@ -64,11 +64,20 @@ async def update_me(
     request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
+    old_step = user.onboarding_step
     payload = body.model_dump(exclude_unset=True)
-    return await profile_service.update_profile(
+    result = await profile_service.update_profile(
         user, payload, db, lang=detect_lang(request)
     )
+    # Invalidate city feeds if profile data affecting matching changed
+    feed_fields = {"intention", "sector", "seeking", "rhythm"}
+    if (user.city_id and feed_fields & payload.keys()) or (
+        user.onboarding_step == "completed" and old_step != "completed"
+    ):
+        await feed_service.invalidate_city_feeds(user.city_id, db, redis)
+    return result
 
 
 @router.patch("/me")
@@ -77,12 +86,20 @@ async def patch_me(
     request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
     """Mise à jour partielle (onboarding step-by-step). Pas de champs requis."""
+    old_step = user.onboarding_step
     payload = body.model_dump(exclude_unset=True)
-    return await profile_service.patch_profile(
+    result = await profile_service.patch_profile(
         user, payload, db, lang=detect_lang(request)
     )
+    feed_fields = {"intention", "sector", "seeking", "rhythm"}
+    if (user.city_id and feed_fields & payload.keys()) or (
+        user.onboarding_step == "completed" and old_step != "completed"
+    ):
+        await feed_service.invalidate_city_feeds(user.city_id, db, redis)
+    return result
 
 
 @router.get("/me/completeness", response_model=CompletenessResponse)

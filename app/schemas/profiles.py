@@ -27,7 +27,7 @@ Sector = Literal[
     "student",
     "other",
 ]
-Rhythm = Literal["early_bird", "night_owl"]
+Rhythm = Literal["early_bird", "night_owl", "flexible"]
 
 
 class PromptEntry(BaseModel):

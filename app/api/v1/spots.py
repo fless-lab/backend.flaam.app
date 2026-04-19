@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user, get_db
+from app.core.dependencies import get_current_user, get_db, get_redis
 from app.core.rate_limiter import rate_limit
 from app.models.user import User
 from app.schemas.spots import (
@@ -20,7 +21,7 @@ from app.schemas.spots import (
     SpotVisibilityBody,
     SuggestSpotBody,
 )
-from app.services import spot_service
+from app.services import feed_service, spot_service
 
 router = APIRouter(prefix="/spots", tags=["spots"])
 
@@ -80,8 +81,11 @@ async def add_spot(
     body: AddSpotBody,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
     us = await spot_service.add_spot(user, body.spot_id, db)
+    if user.city_id:
+        await feed_service.invalidate_city_feeds(user.city_id, db, redis)
     return spot_service.serialize_spot(us.spot)
 
 
@@ -90,8 +94,11 @@ async def remove_spot(
     spot_id: UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> Response:
     await spot_service.remove_spot(user, spot_id, db)
+    if user.city_id:
+        await feed_service.invalidate_city_feeds(user.city_id, db, redis)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

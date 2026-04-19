@@ -36,6 +36,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.constants import (
+    MATCHING_FEED_LIMIT_ENABLED,
+    MATCHING_FEED_MIN_SCORE,
     MATCHING_FEED_MIN_SIZE,
     MATCHING_FEED_SIZE,
 )
@@ -214,11 +216,21 @@ async def generate_feed_for_user(
     # ── L5 ────────────────────────────────────────────────────────────
     wildcard_count = int(config.get("wildcard_count", 2))
     new_user_count = int(config.get("new_user_boost_count", 2))
-    top_n = max(
-        MATCHING_FEED_MIN_SIZE,
-        MATCHING_FEED_SIZE - wildcard_count - new_user_count,
-    )
-    top_profiles = [cid for cid, _ in sorted_candidates[:top_n]]
+    # Filter by minimum score
+    sorted_candidates = [
+        (cid, score) for cid, score in sorted_candidates
+        if score >= MATCHING_FEED_MIN_SCORE
+    ]
+
+    if MATCHING_FEED_LIMIT_ENABLED:
+        top_n = max(
+            MATCHING_FEED_MIN_SIZE,
+            MATCHING_FEED_SIZE - wildcard_count - new_user_count,
+        )
+        top_profiles = [cid for cid, _ in sorted_candidates[:top_n]]
+    else:
+        # No limit — return all profiles above min score
+        top_profiles = [cid for cid, _ in sorted_candidates]
 
     wildcards = await inject_wildcards(
         user=user,
@@ -247,9 +259,10 @@ async def generate_feed_for_user(
                 continue
             feed_ids.append(cid)
             used.add(cid)
-            if len(feed_ids) >= MATCHING_FEED_SIZE:
+            if MATCHING_FEED_LIMIT_ENABLED and len(feed_ids) >= MATCHING_FEED_SIZE:
                 break
-    feed_ids = feed_ids[:MATCHING_FEED_SIZE]
+    if MATCHING_FEED_LIMIT_ENABLED:
+        feed_ids = feed_ids[:MATCHING_FEED_SIZE]
 
     feed_ids = await ensure_minimum_visibility(
         feed_ids, user, redis_client, db_session

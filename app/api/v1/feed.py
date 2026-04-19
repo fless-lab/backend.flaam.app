@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis
@@ -28,11 +28,12 @@ router = APIRouter(prefix="/feed", tags=["feed"])
 
 @router.get("", response_model=DailyFeedResponse)
 async def get_feed(
+    force: bool = Query(False, description="Force feed regeneration"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
-    return await feed_service.get_daily_feed(user, db, redis)
+    return await feed_service.get_daily_feed(user, db, redis, force=force)
 
 
 @router.get("/crossed", response_model=CrossedFeedResponse)

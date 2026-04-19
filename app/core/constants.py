@@ -187,8 +187,10 @@ NEW_USER_BOOST_BUCKETS: list[tuple[int, int, str]] = [
 
 # ── Taille du feed et garde-fous (non paramétrable — contrat UX) ──
 
-MATCHING_FEED_SIZE: int = 12
+MATCHING_FEED_LIMIT_ENABLED: bool = False  # False = pas de limite de taille
+MATCHING_FEED_SIZE: int = 12  # utilisé seulement si LIMIT_ENABLED = True
 MATCHING_FEED_MIN_SIZE: int = 8
+MATCHING_FEED_MIN_SCORE: float = 15.0  # score total minimum pour apparaître
 MATCHING_SKIP_COOLDOWN_DAYS: int = 30
 MATCHING_ACTIVE_WINDOW_DAYS: int = 7
 

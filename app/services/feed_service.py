@@ -29,11 +29,12 @@ from uuid import UUID
 import redis.asyncio as aioredis
 import structlog
 from fastapi import status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.constants import (
+    MATCHING_FEED_LIMIT_ENABLED,
     MATCHING_FEED_MIN_SIZE,
     MATCHING_FEED_SIZE,
     MATCHING_SKIP_COOLDOWN_DAYS,
@@ -381,15 +382,73 @@ async def _write_feed_cache(
     await db.flush()
 
 
+async def _evict_from_feed_cache(
+    user_id: UUID, target_id: UUID, db: AsyncSession
+) -> None:
+    """Remove target_id from today's FeedCache DB row (Redis is already DEL'd)."""
+    row = await db.execute(
+        select(FeedCache).where(
+            FeedCache.user_id == user_id,
+            FeedCache.feed_date == _today_utc(),
+        )
+    )
+    fc = row.scalar_one_or_none()
+    if fc is None:
+        return
+    fc.profile_ids = [p for p in (fc.profile_ids or []) if p != target_id]
+    fc.wildcard_ids = [p for p in (fc.wildcard_ids or []) if p != target_id]
+    fc.new_user_ids = [p for p in (fc.new_user_ids or []) if p != target_id]
+    await db.flush()
+
+
+async def invalidate_city_feeds(
+    city_id: UUID, db: AsyncSession, redis_client: aioredis.Redis
+) -> int:
+    """Invalidate feed cache (Redis + DB) for all active users in a city.
+
+    Called when a new user completes onboarding or when a profile changes
+    significantly (quartiers, spots, intention). The feed is regenerated
+    lazily on the next GET /feed call for each user.
+    """
+    rows = await db.execute(
+        select(User.id).where(
+            User.city_id == city_id,
+            User.is_active.is_(True),
+        )
+    )
+    user_ids = [row[0] for row in rows.all()]
+    if not user_ids:
+        return 0
+
+    # Batch Redis DEL
+    keys = [FEED_CACHE_KEY.format(user_id=str(uid)) for uid in user_ids]
+    if keys:
+        await redis_client.delete(*keys)
+
+    # Batch FeedCache DB delete
+    await db.execute(
+        delete(FeedCache).where(FeedCache.user_id.in_(user_ids))
+    )
+    await db.commit()
+
+    log.info(
+        "city_feeds_invalidated",
+        city_id=str(city_id),
+        count=len(user_ids),
+    )
+    return len(user_ids)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # GET /feed
 # ══════════════════════════════════════════════════════════════════════
 
 
 async def get_daily_feed(
-    user: User, db: AsyncSession, redis_client: aioredis.Redis
+    user: User, db: AsyncSession, redis_client: aioredis.Redis,
+    *, force: bool = False,
 ) -> dict:
-    cached = await _read_feed_cache(user.id, redis_client, db)
+    cached = None if force else await _read_feed_cache(user.id, redis_client, db)
     if cached is None:
         generated = await generate_feed_for_user(user.id, db, redis_client)
         await _write_feed_cache(user.id, generated, redis_client, db)
@@ -405,6 +464,48 @@ async def get_daily_feed(
     wildcards = {UUID(x) for x in cached.get("wildcards") or []}
     new_users = {UUID(x) for x in cached.get("new_users") or []}
 
+    # Filter out profiles already interacted with (liked/skipped/matched)
+    actioned_rows = await db.execute(
+        select(Match.user_b_id).where(
+            Match.user_a_id == user.id,
+            Match.user_b_id.in_(profile_ids),
+        )
+    )
+    actioned_ids = {row[0] for row in actioned_rows.all()}
+    profile_ids = [pid for pid in profile_ids if pid not in actioned_ids]
+
+    # B3: If cache returned 0 profiles after filtering AND we didn't just
+    # generate, try regenerating once (new users may have appeared).
+    if not profile_ids and not force:
+        # Invalidate stale cache for this user
+        await redis_client.delete(
+            FEED_CACHE_KEY.format(user_id=str(user.id))
+        )
+        await db.execute(
+            delete(FeedCache).where(
+                FeedCache.user_id == user.id,
+                FeedCache.feed_date == _today_utc(),
+            )
+        )
+        generated = await generate_feed_for_user(user.id, db, redis_client)
+        await _write_feed_cache(user.id, generated, redis_client, db)
+        await db.commit()
+
+        profile_ids = [uid for uid in generated["profile_ids"]]
+        wildcards = set(generated["wildcards"])
+        new_users = set(generated["new_users"])
+
+        # Re-filter
+        if profile_ids:
+            actioned_rows = await db.execute(
+                select(Match.user_b_id).where(
+                    Match.user_a_id == user.id,
+                    Match.user_b_id.in_(profile_ids),
+                )
+            )
+            actioned_ids = {row[0] for row in actioned_rows.all()}
+            profile_ids = [pid for pid in profile_ids if pid not in actioned_ids]
+
     me_full = await _load_user_full(user.id, db)
     others = await _load_users_full(profile_ids, db)
 
@@ -419,7 +520,7 @@ async def get_daily_feed(
                 other,
                 is_wildcard=(pid in wildcards),
                 is_new_user=(pid in new_users),
-                geo_score=None,  # L2 non persisté hors pipeline — skip au MVP
+                geo_score=None,
             )
         )
 
@@ -716,6 +817,12 @@ async def like_profile(
             await _store_idempotent_response(
                 "like", user.id, idem_key, response, redis_client
             )
+            # Evict from cache so profile doesn't reappear
+            await cache_invalidate(
+                FEED_CACHE_KEY.format(user_id=str(user.id)), redis_client
+            )
+            await _evict_from_feed_cache(user.id, target_id, db)
+            await db.commit()
             return response
 
         if mine is not None and mine.status == "skipped":
@@ -801,6 +908,8 @@ async def like_profile(
     await cache_invalidate(
         FEED_CACHE_KEY.format(user_id=str(user.id)), redis_client
     )
+    await _evict_from_feed_cache(user.id, target_id, db)
+    await db.commit()
 
     log.info(
         "feed_like",
@@ -898,6 +1007,8 @@ async def skip_profile(
     await cache_invalidate(
         FEED_CACHE_KEY.format(user_id=str(user.id)), redis_client
     )
+    await _evict_from_feed_cache(user.id, target_id, db)
+    await db.commit()
     return response
 
 
@@ -1088,6 +1199,7 @@ async def get_likes_received(
 __all__ = [
     "get_daily_feed",
     "get_crossed_feed",
+    "invalidate_city_feeds",
     "like_profile",
     "skip_profile",
     "log_view",
