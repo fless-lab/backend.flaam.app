@@ -52,6 +52,10 @@ class UpdateProfileBody(BaseModel):
     sector: Sector | None = None
     rhythm: Rhythm | None = None
 
+    bio: str | None = Field(default=None, max_length=500)
+
+    # `prompts` reste accepté pour la rétro-compat des clients déjà
+    # déployés. Le nouveau front ne l'envoie plus.
     prompts: list[PromptEntry] | None = Field(default=None, max_length=3)
     tags: list[str] | None = Field(default=None, max_length=8)
     languages: list[str] | None = Field(default=None, max_length=10)
@@ -88,6 +92,7 @@ class MyProfileResponse(BaseModel):
     intention: Intention | None = None
     sector: Sector | None = None
     rhythm: Rhythm | None = None
+    bio: str | None = None
     prompts: list[PromptEntry]
     tags: list[str]
     languages: list[str]
@@ -114,6 +119,7 @@ class OtherProfileResponse(BaseModel):
     intention: Intention | None = None
     sector: Sector | None = None
     rhythm: Rhythm | None = None
+    bio: str | None = None
     prompts: list[PromptEntry]
     tags: list[str]
     languages: list[str]

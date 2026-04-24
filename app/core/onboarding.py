@@ -34,6 +34,10 @@ class OnboardingStep(str, Enum):
     SECTOR = "sector"
 
     # ── Phase 3 : Enrichissement (skippables) ──
+    BIO = "bio"
+    # PROMPTS : conservé en enum pour compat data historique. Plus dans
+    # le flow par défaut, poids de completeness à 0. Le front ne le
+    # propose plus.
     PROMPTS = "prompts"
     TAGS = "tags"
     SPOTS = "spots"
@@ -52,7 +56,7 @@ ONBOARDING_FLOW: list[OnboardingStep] = [
     OnboardingStep.QUARTIERS,
     OnboardingStep.INTENTION,
     OnboardingStep.SECTOR,
-    OnboardingStep.PROMPTS,
+    OnboardingStep.BIO,
     OnboardingStep.TAGS,
     OnboardingStep.SPOTS,
     OnboardingStep.NOTIFICATION_PERMISSION,
@@ -60,7 +64,7 @@ ONBOARDING_FLOW: list[OnboardingStep] = [
 ]
 
 SKIPPABLE_STEPS: set[OnboardingStep] = {
-    OnboardingStep.PROMPTS,
+    OnboardingStep.BIO,
     OnboardingStep.TAGS,
     OnboardingStep.SPOTS,
     OnboardingStep.NOTIFICATION_PERMISSION,
@@ -68,6 +72,8 @@ SKIPPABLE_STEPS: set[OnboardingStep] = {
 
 # Poids pour le score de complétion (§13). Les prérequis valent 0 car
 # ils sont obligatoires : ne pas les faire = pas de compte.
+# PROMPTS retiré du calcul : poids 0. Sa pondération historique (0.20)
+# va sur BIO (qui le remplace côté UX).
 STEP_COMPLETENESS_WEIGHT: dict[str, float] = {
     OnboardingStep.CITY_SELECTION.value: 0.0,
     OnboardingStep.BASIC_INFO.value: 0.0,
@@ -76,7 +82,8 @@ STEP_COMPLETENESS_WEIGHT: dict[str, float] = {
     OnboardingStep.QUARTIERS.value: 0.15,
     OnboardingStep.INTENTION.value: 0.0,
     OnboardingStep.SECTOR.value: 0.0,
-    OnboardingStep.PROMPTS.value: 0.20,
+    OnboardingStep.BIO.value: 0.20,
+    OnboardingStep.PROMPTS.value: 0.0,
     OnboardingStep.TAGS.value: 0.15,
     OnboardingStep.SPOTS.value: 0.10,
 }
@@ -133,6 +140,10 @@ def is_step_done(
         return profile is not None and bool(profile.intention)
     if step is OnboardingStep.SECTOR:
         return profile is not None and bool(profile.sector)
+    if step is OnboardingStep.BIO:
+        return profile is not None and bool(
+            profile.bio and profile.bio.strip()
+        )
     if step is OnboardingStep.PROMPTS:
         return profile is not None and bool(profile.prompts)
     if step is OnboardingStep.TAGS:

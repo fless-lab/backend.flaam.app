@@ -29,6 +29,11 @@ class Profile(Base, UUIDMixin, TimestampMixin):
     sector: Mapped[str | None] = mapped_column(String(30), nullable=True)
     rhythm: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # Texte libre affiché sur le profil. Remplace les prompts côté UX.
+    bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # `prompts` : ancienne UX, conservé pour la data historique. Plus
+    # utilisé en écriture par le front. Code mort côté algo (poids 0).
     prompts: Mapped[dict] = mapped_column(JSONB, default=list)
     tags: Mapped[list] = mapped_column(JSONB, default=list)
     languages: Mapped[list] = mapped_column(JSONB, default=list)
