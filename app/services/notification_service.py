@@ -19,12 +19,14 @@ Session 11 — i18n :
 - Deep-link Flaam dans la payload data (navigation in-app).
 """
 
+import asyncio
+import os
 from datetime import datetime, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -35,6 +37,158 @@ from app.models.user import User
 
 log = structlog.get_logger()
 settings = get_settings()
+
+
+# ── Firebase Admin SDK (lazy init) ──────────────────────────────────
+#
+# L'init se fait au premier envoi reel pour eviter de bloquer le
+# demarrage de l'app si le JSON n'est pas encore present (ex : dev
+# local sans creds). Une fois initialise, l'app firebase est
+# memorisee dans `_firebase_app` et reutilisee.
+#
+# Etats possibles :
+#   _firebase_app == "uninitialized"  → pas encore tente
+#   _firebase_app is None             → tentative ratee (creds absents
+#                                       ou invalides) → on log + skip
+#   _firebase_app == <App>            → pret a envoyer
+_firebase_app: object | None | str = "uninitialized"
+_firebase_init_lock = asyncio.Lock()
+
+
+async def _get_firebase_app() -> object | None:
+    """Retourne l'instance firebase_admin.App ou None si indisponible."""
+    global _firebase_app
+    if _firebase_app != "uninitialized":
+        return _firebase_app  # type: ignore[return-value]
+    async with _firebase_init_lock:
+        if _firebase_app != "uninitialized":
+            return _firebase_app  # type: ignore[return-value]
+        creds_path = (settings.fcm_service_account_json or "").strip()
+        if not creds_path:
+            log.info("fcm_init_skipped", reason="no_credentials_path")
+            _firebase_app = None
+            return None
+        if not os.path.isfile(creds_path):
+            log.warning(
+                "fcm_init_skipped",
+                reason="credentials_file_not_found",
+                path=creds_path,
+            )
+            _firebase_app = None
+            return None
+        try:
+            import firebase_admin
+            from firebase_admin import credentials
+
+            cred = credentials.Certificate(creds_path)
+            app = firebase_admin.initialize_app(cred, name="flaam-fcm")
+            _firebase_app = app
+            log.info(
+                "fcm_init_ok",
+                project_id=settings.firebase_project_id or "from_creds",
+            )
+            return app
+        except Exception as exc:  # noqa: BLE001
+            log.warning("fcm_init_failed", reason=str(exc))
+            _firebase_app = None
+            return None
+
+
+async def _send_fcm_to_tokens(
+    *,
+    tokens: list[str],
+    title: str,
+    body: str,
+    deep_link: str | None,
+    type_: str,
+    data: dict,
+    db: AsyncSession,
+) -> dict:
+    """
+    Envoie le push a chaque token en parallele. Supprime les tokens
+    invalides (UnregisteredError = app desinstallee, token revoque) en
+    nettoyant la colonne Device.fcm_token.
+
+    Retourne {"success": int, "failure": int, "invalid_tokens": int}.
+    """
+    app = await _get_firebase_app()
+    if app is None:
+        return {
+            "success": 0,
+            "failure": 0,
+            "invalid_tokens": 0,
+            "skipped_no_sdk": True,
+        }
+
+    from firebase_admin import messaging
+
+    # Construit le payload data : on stringifie tout (FCM exige des str).
+    data_payload = {k: str(v) for k, v in data.items()}
+    data_payload["type"] = type_
+    if deep_link:
+        data_payload["deep_link"] = deep_link
+
+    notification = messaging.Notification(title=title, body=body)
+
+    success = 0
+    failure = 0
+    invalid: list[str] = []
+
+    def _send_one(token: str) -> None:
+        nonlocal success, failure
+        try:
+            message = messaging.Message(
+                notification=notification,
+                data=data_payload,
+                token=token,
+                android=messaging.AndroidConfig(
+                    priority="high",
+                    notification=messaging.AndroidNotification(
+                        click_action="FLUTTER_NOTIFICATION_CLICK",
+                        channel_id="flaam_general",
+                    ),
+                ),
+            )
+            messaging.send(message, app=app)
+            success += 1
+        except messaging.UnregisteredError:
+            invalid.append(token)
+            failure += 1
+        except Exception as exc:  # noqa: BLE001
+            failure += 1
+            log.info("fcm_send_failed", token_prefix=token[:12], reason=str(exc))
+
+    # Le SDK est sync ; on offload pour ne pas bloquer l'event loop.
+    await asyncio.gather(
+        *(asyncio.to_thread(_send_one, tok) for tok in tokens)
+    )
+
+    if invalid:
+        # Cleanup : on retire les tokens invalides pour ne pas reessayer.
+        await db.execute(
+            update(Device)
+            .where(Device.fcm_token.in_(invalid))
+            .values(fcm_token=None)
+        )
+        await db.commit()
+        log.info("fcm_tokens_cleaned", count=len(invalid))
+
+    return {
+        "success": success,
+        "failure": failure,
+        "invalid_tokens": len(invalid),
+    }
+
+
+async def _collect_fcm_tokens(user_id: UUID, db: AsyncSession) -> list[str]:
+    """Retourne tous les fcm_token actifs du user (un par device)."""
+    rows = await db.execute(
+        select(Device.fcm_token).where(
+            Device.user_id == user_id,
+            Device.fcm_token.is_not(None),
+        )
+    )
+    return [t for t in rows.scalars().all() if t]
 
 
 # Titres des notifications push (FR/EN). Les bodies vivent dans
@@ -301,19 +455,63 @@ async def send_push(
         }
 
     # ── FCM réel (firebase-admin) ────────────────────────────────────
-    # Stub S8 : on log + on signale "fcm_not_cabled" ; le câblage
-    # firebase-admin viendra en S11 avec le secret FCM_SERVICE_ACCOUNT_JSON.
+    # Recupere les fcm_token actifs du user (un par device). Si aucun
+    # → on log + skip (pas une erreur, l'user n'a juste pas accorde
+    # la permission notifications ou pas encore enregistre son token).
+    tokens = await _collect_fcm_tokens(user_id, db)
+    if not tokens:
+        log.info(
+            "push_skipped_no_token",
+            user_id=str(user_id),
+            type=type,
+        )
+        return {
+            "sent": False,
+            "reason": "no_fcm_token",
+            "type": type,
+            "deep_link": deep_link,
+        }
+
+    result = await _send_fcm_to_tokens(
+        tokens=tokens,
+        title=title,
+        body=body,
+        deep_link=deep_link,
+        type_=type,
+        data=data,
+        db=db,
+    )
+
+    if result.get("skipped_no_sdk"):
+        log.info(
+            "push_skipped_no_sdk",
+            user_id=str(user_id),
+            type=type,
+            reason="firebase_admin_not_initialized",
+        )
+        return {
+            "sent": False,
+            "reason": "fcm_credentials_missing",
+            "type": type,
+            "deep_link": deep_link,
+        }
+
     log.info(
-        "push_fcm_noop",
+        "push_sent",
         user_id=str(user_id),
         type=type,
-        note="FCM enabled but firebase-admin SDK not wired yet (S11)",
+        success=result["success"],
+        failure=result["failure"],
+        invalid_tokens=result["invalid_tokens"],
     )
     return {
-        "sent": False,
-        "reason": "fcm_not_wired",
+        "sent": result["success"] > 0,
+        "reason": "fcm_delivered" if result["success"] > 0 else "fcm_all_failed",
         "type": type,
         "deep_link": deep_link,
+        "fcm_success": result["success"],
+        "fcm_failure": result["failure"],
+        "fcm_invalid_tokens": result["invalid_tokens"],
     }
 
 

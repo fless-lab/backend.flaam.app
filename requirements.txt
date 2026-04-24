@@ -32,6 +32,7 @@ httpx==0.28.1
 
 # SMS / Push / Storage
 boto3==1.35.86
+firebase-admin==6.6.0
 
 # Image processing
 Pillow==11.1.0
