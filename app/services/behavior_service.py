@@ -48,6 +48,8 @@ VALID_EVENT_TYPES = {
     # Premium funnel
     "premium_plan_tapped",
     "premium_upsell_dwell",
+    # Events (engagement sur un event -> boost co-participants)
+    "event_detail_dwell",
 }
 
 

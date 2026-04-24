@@ -29,6 +29,8 @@ EventType = Literal[
     # Signaux premium (funnel upsell)
     "premium_plan_tapped",
     "premium_upsell_dwell",
+    # Signaux events (engagement sur un event -> boost co-participants)
+    "event_detail_dwell",
 ]
 
 
