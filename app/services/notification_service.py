@@ -41,12 +41,16 @@ settings = get_settings()
 # app/core/i18n.py sous la même clé (ex : "notif_new_match").
 _NOTIF_TITLES: dict[str, dict[str, str]] = {
     "notif_new_match": {
-        "fr": "Nouveau match !",
-        "en": "New match!",
+        "fr": "Nouveau match ! 🔥",
+        "en": "New match! 🔥",
     },
     "notif_new_message": {
         "fr": "Nouveau message",
         "en": "New message",
+    },
+    "notif_new_like": {
+        "fr": "Une flamme reçue",
+        "en": "New flame received",
     },
     "notif_event_reminder": {
         "fr": "Rappel event",
@@ -88,6 +92,7 @@ _NOTIF_TITLES: dict[str, dict[str, str]] = {
 _DEEP_LINKS: dict[str, str] = {
     "notif_new_match": "flaam://matches/{match_id}",
     "notif_new_message": "flaam://chat/{match_id}",
+    "notif_new_like": "flaam://feed",
     "notif_event_reminder": "flaam://events/{event_id}",
     "notif_likes_received_count": "flaam://likes",
     "notif_selfie_required": "flaam://profile/selfie",
@@ -181,6 +186,7 @@ async def register_fcm_token(
 _TYPE_TO_PREF_FIELD: dict[str, str | None] = {
     "notif_new_match": "new_match",
     "notif_new_message": "new_message",
+    "notif_new_like": None,  # Toujours envoyé (pas de flag dédié)
     "notif_event_reminder": "events",
     "notif_likes_received_count": None,  # Toujours envoyé (pas de flag dédié)
     "notif_selfie_required": None,  # Safety/compliance — bypass prefs

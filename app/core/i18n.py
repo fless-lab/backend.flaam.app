@@ -288,6 +288,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "{name} : {preview}",
         "en": "{name}: {preview}",
     },
+    "notif_new_like": {
+        "fr": "Quelqu'un t'a envoye une flamme.",
+        "en": "Someone sent you a flame.",
+    },
     "notif_reply_reminder": {
         "fr": "Tu n'as pas encore repondu a {name}.",
         "en": "You haven't replied to {name} yet.",

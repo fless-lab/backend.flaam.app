@@ -33,9 +33,10 @@ from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.models.match import Match
 from app.models.message import Message
+from app.models.profile import Profile
 from app.models.spot import Spot
 from app.models.user import User
-from app.services import moderation_service
+from app.services import moderation_service, notification_service
 
 log = structlog.get_logger()
 settings = get_settings()
@@ -261,7 +262,10 @@ async def send_message(
     await redis.set(dedup_key, str(msg.id), ex=DEDUP_TTL_SECONDS)
 
     # 5. Tente un push WS au partenaire (non bloquant).
-    await _try_push_live(match, sender.id, msg, db, redis)
+    delivered_via_ws = await _try_push_live(match, sender.id, msg, db, redis)
+
+    # 6. Si pas livre via WS (app fermee) → push FCM.
+    await _maybe_push_new_message(match, sender, msg, delivered_via_ws, db)
 
     return _msg_to_dict(msg)
 
@@ -272,8 +276,12 @@ async def _try_push_live(
     msg: Message,
     db: AsyncSession,
     redis: aioredis.Redis,
-) -> None:
-    """Broadcast WS au partenaire si en ligne ; passe ``status=delivered``."""
+) -> bool:
+    """Broadcast WS au partenaire si en ligne ; passe ``status=delivered``.
+
+    Retourne True si le message a ete livre via WS (l'app du partenaire
+    est ouverte) — sert a savoir si une push FCM est encore necessaire.
+    """
     # Import local pour éviter le cycle chat_service ⇄ ws.chat.
     from app.ws.chat import connection_manager
 
@@ -300,6 +308,73 @@ async def _try_push_live(
         msg.status = "delivered"
         await db.commit()
         await db.refresh(msg)
+    return bool(delivered)
+
+
+# ── Push helpers (FCM) ──────────────────────────────────────────────
+
+_MESSAGE_PREVIEW_MAX = 40
+
+
+async def _sender_display_name(sender: User, db: AsyncSession) -> str:
+    """Retourne le display_name du sender, fallback "Quelqu'un" si absent."""
+    if sender.profile is not None and sender.profile.display_name:
+        return sender.profile.display_name
+    row = await db.execute(
+        select(Profile.display_name).where(Profile.user_id == sender.id)
+    )
+    name = row.scalar_one_or_none()
+    return name or "Quelqu'un"
+
+
+def _message_preview(msg: Message, lang: str = "fr") -> str:
+    """Body preview court pour la push notification."""
+    if msg.message_type == "voice":
+        return "Nouveau message vocal" if lang == "fr" else "New voice message"
+    if msg.message_type == "meetup":
+        return "Proposition de rendez-vous" if lang == "fr" else "Meetup proposal"
+    content = (msg.content or "").strip()
+    if not content:
+        return "Nouveau message" if lang == "fr" else "New message"
+    if len(content) > _MESSAGE_PREVIEW_MAX:
+        return content[: _MESSAGE_PREVIEW_MAX - 1].rstrip() + "…"
+    return content
+
+
+async def _maybe_push_new_message(
+    match: Match,
+    sender: User,
+    msg: Message,
+    delivered_via_ws: bool,
+    db: AsyncSession,
+) -> None:
+    """Envoie une push FCM au partenaire si pas livre via WS.
+
+    Silent fail : un probleme de notif ne doit jamais casser l'envoi.
+    """
+    if delivered_via_ws:
+        return
+    partner_id = _partner_id(match, sender.id)
+    try:
+        name = await _sender_display_name(sender, db)
+        preview = _message_preview(msg, lang="fr")
+        await notification_service.send_push(
+            partner_id,
+            type="notif_new_message",
+            data={
+                "name": name,
+                "preview": preview,
+                "match_id": str(match.id),
+            },
+            db=db,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.info(
+            "push_new_message_skipped",
+            match_id=str(match.id),
+            sender_id=str(sender.id),
+            reason=str(exc),
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -391,7 +466,8 @@ async def send_voice(
     await db.refresh(msg)
 
     await redis.set(dedup_key, str(msg.id), ex=DEDUP_TTL_SECONDS)
-    await _try_push_live(match, sender.id, msg, db, redis)
+    delivered_via_ws = await _try_push_live(match, sender.id, msg, db, redis)
+    await _maybe_push_new_message(match, sender, msg, delivered_via_ws, db)
     return _msg_to_dict(msg)
 
 
@@ -477,7 +553,8 @@ async def propose_meetup(
     await db.refresh(msg)
 
     await redis.set(dedup_key, str(msg.id), ex=DEDUP_TTL_SECONDS)
-    await _try_push_live(match, sender.id, msg, db, redis)
+    delivered_via_ws = await _try_push_live(match, sender.id, msg, db, redis)
+    await _maybe_push_new_message(match, sender, msg, delivered_via_ws, db)
     return _msg_to_dict(msg)
 
 

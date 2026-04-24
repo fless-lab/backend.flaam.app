@@ -112,6 +112,15 @@ def _age_from_birth(birth: date) -> int:
     )
 
 
+async def _display_name_of(user_id: UUID, db: AsyncSession) -> str:
+    """Retourne le display_name d'un user, fallback "Quelqu'un" si absent."""
+    row = await db.execute(
+        select(Profile.display_name).where(Profile.user_id == user_id)
+    )
+    name = row.scalar_one_or_none()
+    return name or "Quelqu'un"
+
+
 async def _load_user_full(user_id: UUID, db: AsyncSession) -> User | None:
     stmt = (
         select(User)
@@ -910,6 +919,37 @@ async def like_profile(
     )
     await _evict_from_feed_cache(user.id, target_id, db)
     await db.commit()
+
+    # Push FCM (silent fail, ne doit jamais casser le like).
+    # - matched : push "Nouveau match !" au liker initial (user_a) avec
+    #   le name du current user (user_b qui vient de liker en retour).
+    # - liked  : push "Une flamme reçue" a la cible, sans name (anonyme).
+    try:
+        from app.services import notification_service
+
+        if match_result_kind == "matched":
+            sender_name = await _display_name_of(user.id, db)
+            await notification_service.send_push(
+                match_obj.user_a_id,
+                type="notif_new_match",
+                data={"name": sender_name, "match_id": str(match_obj.id)},
+                db=db,
+            )
+        elif match_result_kind == "liked":
+            await notification_service.send_push(
+                target_id,
+                type="notif_new_like",
+                data={},
+                db=db,
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.info(
+            "push_feed_like_skipped",
+            user_id=str(user.id),
+            target_id=str(target_id),
+            kind=match_result_kind,
+            reason=str(exc),
+        )
 
     log.info(
         "feed_like",
