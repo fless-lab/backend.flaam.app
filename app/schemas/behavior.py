@@ -10,13 +10,25 @@ from pydantic import BaseModel, Field
 
 
 EventType = Literal[
+    # Signaux feed / profil (consommes par l'algo de matching)
     "profile_viewed",
     "photo_scrolled",
     "prompt_read",
     "return_visit",
     "scroll_depth",
+    # Sessions app
     "app_session_start",
     "app_session_end",
+    # Actions explicites sur un profil (enrichissent profile_viewed)
+    "like_given",
+    "skip_given",
+    # Signaux chat (engagement d'une conversation)
+    "conversation_opened",
+    "conversation_duration",
+    "message_typed_deleted",
+    # Signaux premium (funnel upsell)
+    "premium_plan_tapped",
+    "premium_upsell_dwell",
 ]
 
 

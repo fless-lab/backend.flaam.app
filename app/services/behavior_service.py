@@ -24,14 +24,30 @@ from app.models.user import User
 
 
 # Types d'événements acceptés (en sync avec schemas/behavior.EventType).
+# Les events les plus bas (like_given...) sont enregistrés mais pas
+# encore consommés par le matching engine actuel — ils alimenteront
+# les évolutions futures (learning to rank, scoring engagement chat,
+# analyse du funnel premium).
 VALID_EVENT_TYPES = {
+    # Signaux feed / profil
     "profile_viewed",
     "photo_scrolled",
     "prompt_read",
     "return_visit",
     "scroll_depth",
+    # Sessions
     "app_session_start",
     "app_session_end",
+    # Actions explicites sur un profil
+    "like_given",
+    "skip_given",
+    # Chat
+    "conversation_opened",
+    "conversation_duration",
+    "message_typed_deleted",
+    # Premium funnel
+    "premium_plan_tapped",
+    "premium_upsell_dwell",
 }
 
 
