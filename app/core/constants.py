@@ -37,10 +37,16 @@ MATCHING_DEFAULTS: dict[str, float] = {
     "freshness_decay_halflife_days": 30.0,
 
     # ── L3 lifestyle ──
-    "lifestyle_w_tags": 0.50,
-    "lifestyle_w_intention": 0.25,
-    "lifestyle_w_rhythm": 0.15,
-    "lifestyle_w_languages": 0.10,
+    # Anciens poids (taux de remplissage rhythm/languages trop bas pour
+    # peser un signal fiable en early-stage — réactivable plus tard) :
+    #   "lifestyle_w_tags": 0.50,
+    #   "lifestyle_w_intention": 0.25,
+    #   "lifestyle_w_rhythm": 0.15,
+    #   "lifestyle_w_languages": 0.10,
+    "lifestyle_w_tags": 0.65,
+    "lifestyle_w_intention": 0.35,
+    "lifestyle_w_rhythm": 0.0,
+    "lifestyle_w_languages": 0.0,
 
     # ── L4 behavior ──
     "behavior_min_multiplier": 0.6,
