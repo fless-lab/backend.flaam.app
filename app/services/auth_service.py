@@ -206,6 +206,7 @@ async def verify_otp(
     db: AsyncSession,
     redis: aioredis.Redis,
     lang: str = "fr",
+    invite_code: str | None = None,
 ) -> dict:
     try:
         normalized = normalize_phone(phone)
@@ -321,6 +322,32 @@ async def verify_otp(
         user, device_fingerprint, platform, app_version, os_version, db
     )
 
+    # Invite code (silent fail). Pour les nouveaux users uniquement :
+    # si fourni et valide, marque le code comme used + place l'user en
+    # waitlist "activated" (bypass) + set onboarding_source="invite".
+    # En cas d'erreur (code invalide/expiré/utilisé) on ignore — la
+    # création du compte n'est jamais bloquée par un mauvais code.
+    invite_redeemed = False
+    if is_new_user and invite_code:
+        try:
+            from app.services import invite_service
+
+            await invite_service.redeem_code(invite_code, user, db)
+            user.onboarding_source = "invite"
+            invite_redeemed = True
+            log.info(
+                "invite_code_redeemed_at_signup",
+                user_id=str(user.id),
+                code=invite_code,
+            )
+        except Exception as exc:
+            log.info(
+                "invite_code_redeem_skipped",
+                user_id=str(user.id),
+                code=invite_code,
+                reason=str(exc),
+            )
+
     # MFA : si activé, on émet des tokens limités — le client devra
     # appeler /auth/mfa/verify avec le PIN avant d'accéder aux routes
     # protégées. Pour l'MVP on signale mfa_required dans la réponse et
@@ -344,6 +371,7 @@ async def verify_otp(
         "mfa_required": mfa_required,
         "is_ghost_conversion": is_ghost_conversion,
         "ghost_data": ghost_data,
+        "invite_redeemed": invite_redeemed,
     }
 
 

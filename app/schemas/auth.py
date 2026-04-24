@@ -36,6 +36,11 @@ class OtpVerifyBody(BaseModel):
     platform: Literal["android", "ios", "web"] | None = None
     app_version: str | None = Field(default=None, max_length=20)
     os_version: str | None = Field(default=None, max_length=30)
+    # Code invite optionnel (ex: "FLAAM-AB12CD34"). Si fourni et valide,
+    # rédemption silencieuse pendant la création du compte (bypass
+    # waitlist + onboarding_source="invite"). Échec silencieux si
+    # invalide/expiré : l'inscription continue normalement.
+    invite_code: str | None = Field(default=None, max_length=20)
 
 
 class GhostConversionData(BaseModel):
@@ -61,6 +66,9 @@ class AuthTokenResponse(BaseModel):
     # remonte les données pré-remplies pour accélérer l'onboarding.
     is_ghost_conversion: bool = False
     ghost_data: GhostConversionData | None = None
+    # True si un invite_code valide a été rédimé pendant ce verify_otp.
+    # Permet au mobile d'afficher un toast de confirmation discret.
+    invite_redeemed: bool = False
 
 
 class RefreshTokenBody(BaseModel):

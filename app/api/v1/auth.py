@@ -130,6 +130,7 @@ async def otp_verify(
         db=db,
         redis=redis,
         lang=detect_lang(request),
+        invite_code=body.invite_code,
     )
     return AuthTokenResponse(**result)
 
