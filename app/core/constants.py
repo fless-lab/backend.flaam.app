@@ -37,14 +37,19 @@ MATCHING_DEFAULTS: dict[str, float] = {
     "freshness_decay_halflife_days": 30.0,
 
     # ── L3 lifestyle ──
-    # Anciens poids (taux de remplissage rhythm/languages trop bas pour
-    # peser un signal fiable en early-stage — réactivable plus tard) :
-    #   "lifestyle_w_tags": 0.50,
-    #   "lifestyle_w_intention": 0.25,
-    #   "lifestyle_w_rhythm": 0.15,
-    #   "lifestyle_w_languages": 0.10,
-    "lifestyle_w_tags": 0.65,
-    "lifestyle_w_intention": 0.35,
+    # Historique des poids :
+    #   v1 — defaults d'origine (rhythm/languages actifs) :
+    #     lifestyle_w_tags=0.50, lifestyle_w_intention=0.25,
+    #     lifestyle_w_rhythm=0.15, lifestyle_w_languages=0.10
+    #   v2 — zero out rhythm/languages (data trop éparse early-stage),
+    #        tags reste dominant :
+    #     lifestyle_w_tags=0.65, lifestyle_w_intention=0.35
+    # v3 (actuel) — intention dominant : les tags = couleur (la diversité
+    # enrichit, des opposés peuvent matcher), l'intention = contrat (un
+    # mismatch reste un mismatch). Compense le passage hard→soft du filtre
+    # d'intention en hard_filters.py.
+    "lifestyle_w_tags": 0.35,
+    "lifestyle_w_intention": 0.65,
     "lifestyle_w_rhythm": 0.0,
     "lifestyle_w_languages": 0.0,
 
