@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     redis_feed_db: int = 1
     redis_cache_db: int = 2
 
-    # RabbitMQ / Celery
-    celery_broker_url: str = "amqp://flaam:password@rabbitmq:5672/flaam"
+    # Celery (broker + result backend sur Redis, DB 3) — pas de RabbitMQ.
+    celery_broker_url: str = "redis://redis:6379/3"
     celery_result_backend: str = "redis://redis:6379/3"
 
     # R2 Storage (Session 11 — stub pour l'instant)

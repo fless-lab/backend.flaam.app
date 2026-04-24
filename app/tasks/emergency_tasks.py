@@ -66,14 +66,20 @@ def _format_location_info(data: dict, now: datetime) -> str:
     return info
 
 
-def _format_alert_sms(data: dict, now: datetime) -> str:
+def _format_alert_sms(
+    data: dict, now: datetime, partner_name: str | None = None
+) -> str:
     user_name = data.get("user_name") or "Ton contact Flaam"
     meeting_place = data.get("meeting_place") or "un lieu non precise"
     location = _format_location_info(data, now)
+    partner_line = ""
+    if partner_name:
+        partner_line = f"\nElle/il devait rencontrer {partner_name}."
     return (
         f"ALERTE FLAAM : {user_name} avait un rendez-vous a "
         f"{meeting_place} et n'a pas annule son timer de securite. "
-        f"Verifie que tout va bien.{location}"
+        f"Verifie que tout va bien.{location}{partner_line}"
+        f"\nPour signaler : https://flaam.app/safety/contact"
     )
 
 
@@ -91,10 +97,15 @@ def _is_timer_key(key: str) -> bool:
 
 
 async def _handle_expired(
-    redis: aioredis.Redis, key: str, data: dict, now: datetime
+    redis: aioredis.Redis,
+    key: str,
+    data: dict,
+    now: datetime,
+    db: AsyncSession,
 ) -> tuple[int, int]:
     """
-    Envoie les SMS aux contacts, puis supprime la clé.
+    Envoie les SMS aux contacts, puis supprime la clé + clôt la row
+    EmergencySession (SAFETY-6).
 
     Retourne (sent, errors).
     """
@@ -135,6 +146,22 @@ async def _handle_expired(
         # Ne supprime la clé QUE si tous les SMS sont partis sans erreur
         # réseau/provider. Sinon le task retry à la prochaine tick.
         await redis.delete(key)
+
+        # SAFETY-6 : clôt la row EmergencySession côté BD.
+        from uuid import UUID
+
+        user_id_raw = data.get("user_id")
+        if user_id_raw:
+            try:
+                await safety_service.mark_session_expired(
+                    user_id=UUID(user_id_raw), db=db
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.error(
+                    "emergency_session_close_failed",
+                    user_id=user_id_raw,
+                    error=str(exc),
+                )
     return (sent, errors)
 
 
@@ -230,7 +257,7 @@ async def _send_emergency_sms_async(
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
 
             if expires_at <= now_:
-                s, e = await _handle_expired(redis, key, data, now_)
+                s, e = await _handle_expired(redis, key, data, now_, db)
                 sent += s
                 errors += e
                 continue
@@ -256,6 +283,12 @@ async def _send_emergency_sms_async(
 @celery_app.task(name="app.tasks.emergency_tasks.send_emergency_sms")
 def send_emergency_sms() -> dict:
     async def _run():
+        # FastAPI's lifespan (main.py) initialises redis_pool, but the Celery
+        # worker runs in a separate process that never boots FastAPI, so we
+        # lazily initialise the pool on the first task invocation. The pool
+        # is idempotent (RedisPool.initialize just sets the attribute).
+        if redis_pool._pool is None:  # noqa: SLF001 — intentional private use
+            await redis_pool.initialize()
         async with async_session() as db:
             return await _send_emergency_sms_async(db, redis_pool.client)
 
