@@ -58,6 +58,9 @@ class FeedProfileItem(BaseModel):
     is_verified: bool
     is_new_user: bool
     is_wildcard: bool
+    # Derniere activite du user (timezone UTC). Le mobile affiche un
+    # badge "actif maintenant" si now - last_active_at <= 15 min.
+    last_active_at: datetime | None = None
 
 
 # ── Responses ────────────────────────────────────────────────────────

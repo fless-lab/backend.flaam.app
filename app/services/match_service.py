@@ -125,6 +125,7 @@ async def list_matches(user: User, db: AsyncSession) -> dict:
                     "age": age,
                     "photo_url": photo_url,
                     "is_verified": bool(partner.is_selfie_verified),
+                    "last_active_at": partner.last_active_at,
                 },
                 "matched_at": m.matched_at or m.created_at,
                 "last_message": (

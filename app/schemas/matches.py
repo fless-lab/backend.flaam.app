@@ -19,6 +19,9 @@ class MatchedUserSummary(BaseModel):
     age: int
     photo_url: str | None = None
     is_verified: bool
+    # Derniere activite du partenaire (UTC). Le mobile affiche un badge
+    # "actif maintenant" si now - last_active_at <= 15 min.
+    last_active_at: datetime | None = None
 
 
 class LastMessagePreview(BaseModel):

@@ -309,6 +309,7 @@ def _hydrate_profile(
         "is_verified": bool(other.is_selfie_verified),
         "is_new_user": is_new_user,
         "is_wildcard": is_wildcard,
+        "last_active_at": other.last_active_at,
     }
 
 
