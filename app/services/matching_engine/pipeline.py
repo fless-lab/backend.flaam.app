@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.constants import (
+    IMPLICIT_PREFERENCES_ENABLED,
     MATCHING_FEED_LIMIT_ENABLED,
     MATCHING_FEED_MIN_SCORE,
     MATCHING_FEED_MIN_SIZE,
@@ -172,21 +173,22 @@ async def generate_feed_for_user(
     lifestyle_scores = await compute_lifestyle_scores(
         user, candidate_ids, config, db_session
     )
-    implicit_profile = await compute_implicit_profile(
-        user.id, db_session, redis_client
-    )
-    if implicit_profile.get("confidence", 0.0) >= 0.3:
-        prof_rows = await db_session.execute(
-            select(Profile).where(Profile.user_id.in_(candidate_ids))
+    if IMPLICIT_PREFERENCES_ENABLED:
+        implicit_profile = await compute_implicit_profile(
+            user.id, db_session, redis_client
         )
-        cand_profiles = {p.user_id: p for p in prof_rows.scalars()}
-        for cid, score in list(lifestyle_scores.items()):
-            cp = cand_profiles.get(cid)
-            if cp is None:
-                continue
-            lifestyle_scores[cid] = apply_implicit_adjustment(
-                score, cp, implicit_profile
+        if implicit_profile.get("confidence", 0.0) >= 0.3:
+            prof_rows = await db_session.execute(
+                select(Profile).where(Profile.user_id.in_(candidate_ids))
             )
+            cand_profiles = {p.user_id: p for p in prof_rows.scalars()}
+            for cid, score in list(lifestyle_scores.items()):
+                cp = cand_profiles.get(cid)
+                if cp is None:
+                    continue
+                lifestyle_scores[cid] = apply_implicit_adjustment(
+                    score, cp, implicit_profile
+                )
 
     # ── L4 ────────────────────────────────────────────────────────────
     behavior_mults = await get_behavior_multipliers(
@@ -284,4 +286,101 @@ async def generate_feed_for_user(
     }
 
 
-__all__ = ["generate_feed_for_user"]
+async def trace_pair(
+    user_a_id: UUID,
+    user_b_id: UUID,
+    db_session: AsyncSession,
+    redis_client: aioredis.Redis,
+) -> dict:
+    """
+    Calcule la décomposition complète du score user_a → user_b.
+
+    Endpoint admin only — utilisé pour comprendre pourquoi un profil
+    apparaît (ou pas) dans le feed de user_a. Court-circuite les hard
+    filters et la sélection de candidats : on score directement la paire.
+
+    Retour :
+        {
+            "user_a": UUID, "user_b": UUID,
+            "account_age_days": int,
+            "weights": {"geo": float, "lifestyle": float, "behavior": float},
+            "scores": {
+                "geo": float,                    # 0-1
+                "event_boost_pts": float,        # 0-15 (avant division /100)
+                "geo_after_event_boost": float,
+                "lifestyle": float,              # 0-1
+                "behavior_multiplier": float,    # 0.6-1.4
+                "behavior_effect": float,        # 1 + (m-1)*beh_w
+                "final": float,                  # score combiné
+            },
+            "min_score_threshold": float,
+            "passes_min_score": bool,
+            "config_keys_used": list[str],
+            "implicit_preferences_enabled": bool,
+        }
+    """
+    user = await _load_user_full(user_a_id, db_session)
+    if user is None or user.profile is None:
+        return {"error": "user_a_not_found"}
+
+    other = await _load_user_full(user_b_id, db_session)
+    if other is None or other.profile is None:
+        return {"error": "user_b_not_found"}
+
+    created_at = user.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    account_age_days = (datetime.now(timezone.utc) - created_at).days
+
+    config = await get_configs(_CONFIG_KEYS, redis_client, db_session)
+
+    if user.city_id is not None:
+        await load_proximity_cache(user.city_id, db_session)
+
+    candidate_ids = [user_b_id]
+
+    geo_scores = await compute_geo_scores(user, candidate_ids, config, db_session)
+    geo_raw = geo_scores.get(user_b_id, 0.0)
+
+    event_boosts = await compute_event_boosts(user.id, candidate_ids, db_session)
+    event_pts = float(event_boosts.get(user_b_id, 0.0))
+    geo_after = min(1.0, geo_raw + (event_pts / 100.0))
+
+    lifestyle_scores = await compute_lifestyle_scores(
+        user, candidate_ids, config, db_session
+    )
+    lifestyle = lifestyle_scores.get(user_b_id, 0.0)
+
+    behavior_mults = await get_behavior_multipliers(
+        candidate_ids, redis_client, db_session
+    )
+    m = behavior_mults.get(user_b_id, 1.0)
+
+    geo_w, life_w, beh_w = await get_adaptive_weights(
+        account_age_days, redis_client, db_session
+    )
+    behavior_effect = 1.0 + (m - 1.0) * beh_w
+    final = (geo_w * geo_after + life_w * lifestyle) * behavior_effect
+
+    return {
+        "user_a": str(user_a_id),
+        "user_b": str(user_b_id),
+        "account_age_days": account_age_days,
+        "weights": {"geo": geo_w, "lifestyle": life_w, "behavior": beh_w},
+        "scores": {
+            "geo": geo_raw,
+            "event_boost_pts": event_pts,
+            "geo_after_event_boost": geo_after,
+            "lifestyle": lifestyle,
+            "behavior_multiplier": m,
+            "behavior_effect": behavior_effect,
+            "final": final,
+        },
+        "min_score_threshold": MATCHING_FEED_MIN_SCORE,
+        "passes_min_score": final >= MATCHING_FEED_MIN_SCORE,
+        "config_keys_used": list(_CONFIG_KEYS),
+        "implicit_preferences_enabled": IMPLICIT_PREFERENCES_ENABLED,
+    }
+
+
+__all__ = ["generate_feed_for_user", "trace_pair"]

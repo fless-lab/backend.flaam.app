@@ -194,6 +194,11 @@ MATCHING_FEED_MIN_SCORE: float = 15.0  # score total minimum pour apparaître
 MATCHING_SKIP_COOLDOWN_DAYS: int = 30
 MATCHING_ACTIVE_WINDOW_DAYS: int = 7
 
+# Implicit preferences ajustent ±15% le lifestyle score selon l'historique
+# de like/skip de l'user. Désactivé par défaut tant qu'on n'a pas la data
+# pour valider que ça apporte plus qu'un biais de confirmation.
+IMPLICIT_PREFERENCES_ENABLED: bool = False
+
 
 # Redis keys (templates)
 REDIS_CONFIG_KEY = "matching:config:{key}"

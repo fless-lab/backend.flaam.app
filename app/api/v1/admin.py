@@ -836,6 +836,19 @@ async def update_matching_config(
     )
 
 
+@router.get("/matching/trace")
+async def matching_trace(
+    user_a: UUID = Query(..., description="UUID du user pour qui on simule le feed"),
+    user_b: UUID = Query(..., description="UUID du candidat à scorer"),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> dict:
+    """Décomposition complète du score user_a → user_b pour debug."""
+    from app.services.matching_engine.pipeline import trace_pair
+
+    return await trace_pair(user_a, user_b, db, redis)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Prompts stats (1)
 # ══════════════════════════════════════════════════════════════════════

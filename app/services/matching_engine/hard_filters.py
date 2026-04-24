@@ -20,7 +20,6 @@ from sqlalchemy import and_, exists, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import (
-    INTENTION_COMPATIBILITY_MATRIX,
     MATCHING_ACTIVE_WINDOW_DAYS,
     MATCHING_SKIP_COOLDOWN_DAYS,
 )
@@ -29,30 +28,6 @@ from app.models.contact_blacklist import ContactBlacklist
 from app.models.match import Match
 from app.models.profile import Profile
 from app.models.user import User
-
-
-# Seuil strict en dessous duquel on considère les intentions incompatibles
-# (la matrice retourne 0.1 pour serious↔friendship : on exclut ce genre
-# de pairs au niveau L1 pour ne pas polluer les feeds).
-_INTENTION_HARD_THRESHOLD = 0.3
-
-
-def _compatible_intention_pairs() -> list[tuple[str, str]]:
-    """Retourne la liste des pairs (user, candidate) acceptées en L1."""
-    return [
-        (a, b)
-        for a, row in INTENTION_COMPATIBILITY_MATRIX.items()
-        for b, score in row.items()
-        if score >= _INTENTION_HARD_THRESHOLD
-    ]
-
-
-def _candidates_intentions_for(user_intention: str) -> list[str]:
-    return [
-        b
-        for b, score in INTENTION_COMPATIBILITY_MATRIX.get(user_intention, {}).items()
-        if score >= _INTENTION_HARD_THRESHOLD
-    ]
 
 
 def _seeking_gender_match(
@@ -101,11 +76,14 @@ async def apply_hard_filters(
       5. is_selfie_verified
       6. Genre compatible bidirectionnel
       7. Âge compatible bidirectionnel
-      8. Intention compatible (matrice ≥ 0.3)
-      9. Pas bloqué dans un sens ni dans l'autre
-     10. Pas dans la blacklist contacts
-     11. Pas skippé dans les 30 derniers jours
-     12. Pas déjà matché (pending/matched)
+      8. Pas bloqué dans un sens ni dans l'autre
+      9. Pas dans la blacklist contacts
+     10. Pas skippé dans les 30 derniers jours
+     11. Pas déjà matché (pending/matched)
+
+    L'intention n'est PLUS un filtre dur : elle reste dans le scoring
+    lifestyle (soft) où elle réduit le score sans éliminer la personne.
+    Ça maximise le graphe vivant — les rules s'appliquent en soft.
     """
     profile = user.profile
     if profile is None or user.city_id is None:
@@ -124,10 +102,6 @@ async def apply_hard_filters(
     min_birth = date(
         today.year - profile.seeking_age_max - 1, today.month, today.day
     ) + timedelta(days=1)
-
-    allowed_intentions = _candidates_intentions_for(profile.intention)
-    if not allowed_intentions:
-        return []
 
     stmt = (
         select(User.id)
@@ -155,8 +129,6 @@ async def apply_hard_filters(
                     Profile.gender,
                     Profile.seeking_gender,
                 ),
-                # Intention compatible
-                Profile.intention.in_(allowed_intentions),
                 # Blocks dans les deux sens
                 not_(
                     exists().where(
