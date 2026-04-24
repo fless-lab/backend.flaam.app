@@ -28,6 +28,7 @@ from app.models.payment import Payment
 from app.models.waitlist_entry import WaitlistEntry
 from app.models.invite_code import InviteCode
 from app.models.emergency_contact import EmergencyContact
+from app.models.emergency_session import EmergencySession
 from app.models.daily_kpi import DailyKpi
 
 __all__ = [
@@ -59,5 +60,6 @@ __all__ = [
     "WaitlistEntry",
     "InviteCode",
     "EmergencyContact",
+    "EmergencySession",
     "DailyKpi",
 ]

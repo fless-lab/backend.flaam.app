@@ -126,10 +126,16 @@ class EmergencyBody(BaseModel):
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
 
+    # SAFETY-6 : contexte match — si fourni, partner_user_id est dérivé
+    # automatiquement depuis la table matches si absent.
+    match_id: UUID | None = None
+    partner_user_id: UUID | None = None
+
 
 class EmergencyResponse(BaseModel):
     status: Literal["armed"]
     expires_at: datetime
+    session_id: UUID | None = None
     message: str | None = None
 
 

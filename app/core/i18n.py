@@ -114,6 +114,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "Match introuvable.",
         "en": "Match not found.",
     },
+    "timer_already_active": {
+        "fr": "Tu as deja un timer actif. Annule-le avant d'en demarrer un autre.",
+        "en": "You already have an active timer. Cancel it before starting a new one.",
+    },
 
     # ── Chat ──
     "message_blocked_insult": {

@@ -256,3 +256,28 @@ class AdminDeleteResponse(BaseModel):
 class AdminBulkApproveResponse(BaseModel):
     approved: int
 
+
+# ── Emergency sessions (SAFETY-6) ──────────────────────────────────────
+
+class AdminEmergencySessionItem(BaseModel):
+    id: UUID
+    user_id: UUID
+    partner_user_id: UUID | None
+    partner_display_name: str | None
+    match_id: UUID | None
+    meeting_place: str | None
+    latitude: float | None
+    longitude: float | None
+    contacts_snapshot: list[dict[str, Any]]
+    hours: float
+    started_at: datetime
+    expires_at: datetime
+    ended_at: datetime | None
+    end_reason: str | None
+    panic_triggered_at: datetime | None
+    created_at: datetime
+
+
+class AdminEmergencySessionListResponse(BaseModel):
+    items: list[AdminEmergencySessionItem]
+    total: int

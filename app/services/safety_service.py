@@ -59,6 +59,8 @@ from app.core.exceptions import AppException
 from app.models.account_history import AccountHistory
 from app.models.block import Block
 from app.models.emergency_contact import EmergencyContact
+from app.models.emergency_session import EmergencySession
+from app.models.match import Match
 from app.models.report import Report
 from app.models.user import User
 from app.services import scam_detection_service
@@ -445,6 +447,38 @@ async def _resolve_contacts(
     raise FlaamError("contact_required", 400, lang)
 
 
+async def _resolve_partner_from_match(
+    *,
+    user: User,
+    match_id: UUID,
+    partner_user_id: UUID | None,
+    db: AsyncSession,
+    lang: str,
+) -> UUID:
+    """
+    Résout le partner_user_id à partir d'un match.
+
+    Si `partner_user_id` est fourni explicitement, on lui fait confiance.
+    Sinon, on dérive depuis la row Match le user qui n'est PAS celui qui
+    arme le timer. 403 si le match n'appartient pas à l'user courant.
+    """
+    match = await db.get(Match, match_id)
+    if match is None:
+        raise FlaamError("match_not_found", 404, lang)
+    if user.id not in (match.user_a_id, match.user_b_id):
+        raise AppException(status.HTTP_403_FORBIDDEN, "not_your_match")
+
+    if partner_user_id is not None:
+        # L'user fourni doit être l'autre côté du match, sinon refus.
+        if partner_user_id not in (match.user_a_id, match.user_b_id):
+            raise AppException(status.HTTP_403_FORBIDDEN, "not_your_match")
+        if partner_user_id == user.id:
+            raise AppException(status.HTTP_400_BAD_REQUEST, "invalid_partner")
+        return partner_user_id
+
+    return match.user_b_id if match.user_a_id == user.id else match.user_a_id
+
+
 async def start_emergency_timer(
     *,
     user: User,
@@ -458,16 +492,31 @@ async def start_emergency_timer(
     db: AsyncSession,
     redis: aioredis.Redis,
     lang: str = "fr",
-) -> datetime:
+    match_id: UUID | None = None,
+    partner_user_id: UUID | None = None,
+) -> tuple[datetime, UUID]:
     """
-    Arme le timer d'urgence — stocke l'état en Redis.
+    Arme le timer d'urgence — écrit une row EmergencySession en BD
+    (source de vérité forensique) puis pousse l'état en Redis pour le
+    task Celery.
 
-    TTL = hours*3600 + TIMER_GRACE_SECONDS. Le task Celery lit
+    TTL Redis = hours*3600 + TIMER_GRACE_SECONDS. Le task Celery lit
     `expires_at_utc` pour décider d'envoyer le SMS d'alerte. Sans la
     grâce, la clé disparaîtrait avant qu'un task 1-minute puisse la
     voir expirer.
+
+    Retourne (expires_at_utc, session_id).
     """
     _validate_hours(hours, lang)
+
+    # SAFETY-6 : un seul timer actif à la fois. Si une clé existe encore en
+    # Redis (non expirée), refuse — l'utilisateur doit annuler d'abord. Ça
+    # évite les "sessions orphelines" en DB (une nouvelle écrase la clé
+    # Redis sans fermer la row emergency_sessions précédente).
+    existing = await redis.get(TIMER_KEY.format(user_id=str(user.id)))
+    if existing is not None:
+        raise FlaamError("timer_already_active", 409, lang)
+
     contacts = await _resolve_contacts(
         user=user,
         contact_ids=contact_ids,
@@ -477,11 +526,41 @@ async def start_emergency_timer(
         lang=lang,
     )
 
+    # SAFETY-6 : si un match_id est fourni, dérive / valide le partner.
+    resolved_partner_id: UUID | None = partner_user_id
+    if match_id is not None:
+        resolved_partner_id = await _resolve_partner_from_match(
+            user=user,
+            match_id=match_id,
+            partner_user_id=partner_user_id,
+            db=db,
+            lang=lang,
+        )
+
     timer_seconds = int(hours * 3600)
     now = datetime.now(timezone.utc)
     expires_at_utc = datetime.fromtimestamp(
         now.timestamp() + timer_seconds, tz=timezone.utc
     )
+
+    # ── DB row FIRST (source de vérité) ──
+    session = EmergencySession(
+        user_id=user.id,
+        partner_user_id=resolved_partner_id,
+        match_id=match_id,
+        meeting_place=meeting_place,
+        latitude=latitude,
+        longitude=longitude,
+        contacts_snapshot=contacts,
+        hours=hours,
+        started_at=now,
+        expires_at=expires_at_utc,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+
+    # ── Redis payload (cache pour Celery) ──
     payload = {
         "user_id": str(user.id),
         "user_name": _user_display_name(user),
@@ -492,6 +571,10 @@ async def start_emergency_timer(
         "longitude": longitude,
         "location_updated_at": now.isoformat() if latitude is not None else None,
         "meeting_place": meeting_place,
+        "session_id": str(session.id),
+        "partner_user_id": (
+            str(resolved_partner_id) if resolved_partner_id else None
+        ),
     }
     await redis.set(
         TIMER_KEY.format(user_id=str(user.id)),
@@ -505,24 +588,57 @@ async def start_emergency_timer(
     log.info(
         "emergency_timer_armed",
         user_id=str(user.id),
+        session_id=str(session.id),
         expires_at=expires_at_utc.isoformat(),
         hours=hours,
         contacts_count=len(contacts),
+        match_id=str(match_id) if match_id else None,
     )
-    return expires_at_utc
+    return expires_at_utc, session.id
+
+
+async def _find_active_session(
+    *, user_id: UUID, db: AsyncSession
+) -> EmergencySession | None:
+    """
+    Cherche la session d'urgence active (ended_at IS NULL) la plus
+    récente pour un user donné. Utilisée par cancel/panic/expiry pour
+    clôturer proprement la row d'audit.
+    """
+    row = await db.execute(
+        select(EmergencySession)
+        .where(
+            EmergencySession.user_id == user_id,
+            EmergencySession.ended_at.is_(None),
+        )
+        .order_by(EmergencySession.started_at.desc())
+        .limit(1)
+    )
+    return row.scalar_one_or_none()
 
 
 async def cancel_emergency_timer(
-    *, user: User, redis: aioredis.Redis
+    *, user: User, db: AsyncSession, redis: aioredis.Redis
 ) -> bool:
     uid = str(user.id)
     deleted = await redis.delete(TIMER_KEY.format(user_id=uid))
     await redis.delete(TIMER_WARNED_KEY.format(user_id=uid))
     cancelled = bool(deleted)
+
+    # SAFETY-6 : clôt la row d'audit même si Redis n'avait plus la clé
+    # (cas du redémarrage ou d'un grace élargi). Ne pas créer de row si
+    # aucune session active trouvée.
+    session = await _find_active_session(user_id=user.id, db=db)
+    if session is not None:
+        session.ended_at = datetime.now(timezone.utc)
+        session.end_reason = "cancelled"
+        await db.commit()
+
     log.info(
         "emergency_timer_cancel",
         user_id=uid,
         cancelled=cancelled,
+        session_id=str(session.id) if session else None,
     )
     return cancelled
 
@@ -622,6 +738,7 @@ def _format_panic_sms(
     meeting_place: str | None,
     latitude: float | None,
     longitude: float | None,
+    partner_name: str | None = None,
 ) -> str:
     place = f" a {meeting_place}" if meeting_place else ""
     loc = ""
@@ -630,11 +747,27 @@ def _format_panic_sms(
             f"\nPosition : https://maps.google.com/maps?"
             f"q={latitude},{longitude}"
         )
+    partner_line = ""
+    if partner_name:
+        partner_line = f"\nElle/il devait rencontrer {partner_name}."
     return (
         f"ALERTE URGENTE FLAAM : {user_name} a declenche une alerte "
-        f"d'urgence{place}.{loc}\n"
-        f"Contacte-la/le immediatement."
+        f"d'urgence{place}.{loc}{partner_line}\n"
+        f"Contacte-la/le immediatement. "
+        f"Pour signaler : https://flaam.app/safety/contact"
     )
+
+
+async def _partner_display_name(
+    *, partner_user_id: UUID | None, db: AsyncSession
+) -> str | None:
+    """Charge le display_name via Profile.user (relationship selectin)."""
+    if partner_user_id is None:
+        return None
+    partner = await db.get(User, partner_user_id)
+    if partner is None:
+        return None
+    return partner.profile.display_name if partner.profile else None
 
 
 async def trigger_panic(
@@ -655,6 +788,10 @@ async def trigger_panic(
     - Sinon : utilise le contact `is_primary=True` en BD. 400 si
       aucun contact enregistré.
 
+    SAFETY-6 : met à jour la row EmergencySession avec panic_triggered_at
+    et end_reason="panic_triggered". Enrichit le SMS avec le nom du
+    partenaire si l'info est connue (via la session).
+
     Retourne le nombre de contacts notifiés.
     """
     uid = str(user.id)
@@ -662,6 +799,16 @@ async def trigger_panic(
     raw = await redis.get(key)
 
     display_name = _user_display_name(user)
+
+    # SAFETY-6 : récupère la session active pour enrichir l'alerte + la
+    # clôturer. Source prioritaire : BD > Redis.
+    active_session = await _find_active_session(user_id=user.id, db=db)
+    partner_user_id: UUID | None = (
+        active_session.partner_user_id if active_session else None
+    )
+    partner_name = await _partner_display_name(
+        partner_user_id=partner_user_id, db=db
+    )
 
     if raw is not None:
         try:
@@ -673,11 +820,23 @@ async def trigger_panic(
             meeting_place = data.get("meeting_place")
             lat = latitude if latitude is not None else data.get("latitude")
             lng = longitude if longitude is not None else data.get("longitude")
+            # Fallback : si pas de session BD (cas legacy), lis le
+            # partner_user_id depuis Redis et recharge le nom.
+            if partner_name is None:
+                redis_partner_raw = data.get("partner_user_id")
+                if redis_partner_raw:
+                    try:
+                        partner_name = await _partner_display_name(
+                            partner_user_id=UUID(redis_partner_raw), db=db
+                        )
+                    except (ValueError, TypeError):
+                        pass
             text = _format_panic_sms(
                 user_name=display_name,
                 meeting_place=meeting_place,
                 latitude=lat,
                 longitude=lng,
+                partner_name=partner_name,
             )
             notified = 0
             for c in contacts:
@@ -691,10 +850,21 @@ async def trigger_panic(
             # Timer consommé.
             await redis.delete(key)
             await redis.delete(TIMER_WARNED_KEY.format(user_id=uid))
+
+            if active_session is not None:
+                now = datetime.now(timezone.utc)
+                active_session.panic_triggered_at = now
+                active_session.ended_at = now
+                active_session.end_reason = "panic_triggered"
+                await db.commit()
+
             log.warning(
                 "panic_triggered_with_timer",
                 user_id=uid,
                 notified=notified,
+                session_id=(
+                    str(active_session.id) if active_session else None
+                ),
             )
             return notified
 
@@ -714,14 +884,42 @@ async def trigger_panic(
         meeting_place=None,
         latitude=latitude,
         longitude=longitude,
+        partner_name=partner_name,
     )
     await sms_service.send_text(primary.phone, text, channel="whatsapp")
+
+    if active_session is not None:
+        now = datetime.now(timezone.utc)
+        active_session.panic_triggered_at = now
+        active_session.ended_at = now
+        active_session.end_reason = "panic_triggered"
+        await db.commit()
+
     log.warning(
         "panic_triggered_no_timer",
         user_id=uid,
         contact=primary.phone[-4:],
     )
     return 1
+
+
+async def mark_session_expired(
+    *, user_id: UUID, db: AsyncSession
+) -> EmergencySession | None:
+    """
+    Appelée par le task Celery après envoi des SMS d'expiration.
+
+    Clôt la row EmergencySession active la plus récente avec
+    end_reason="expired_sms_sent". Idempotent : si aucune session
+    active n'existe (legacy / corruption), retourne None sans lever.
+    """
+    session = await _find_active_session(user_id=user_id, db=db)
+    if session is None:
+        return None
+    session.ended_at = datetime.now(timezone.utc)
+    session.end_reason = "expired_sms_sent"
+    await db.commit()
+    return session
 
 
 __all__ = [
@@ -741,6 +939,7 @@ __all__ = [
     "update_timer_location",
     "extend_timer",
     "trigger_panic",
+    "mark_session_expired",
     "TIMER_KEY",
     "TIMER_WARNED_KEY",
     "TIMER_GRACE_SECONDS",

@@ -271,7 +271,7 @@ async def post_emergency(
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
     lang = detect_lang(request)
-    expires_at = await safety_service.start_emergency_timer(
+    expires_at, session_id = await safety_service.start_emergency_timer(
         user=user,
         hours=body.hours,
         contact_ids=body.contact_ids,
@@ -280,6 +280,8 @@ async def post_emergency(
         latitude=body.latitude,
         longitude=body.longitude,
         meeting_place=body.meeting_place,
+        match_id=body.match_id,
+        partner_user_id=body.partner_user_id,
         db=db,
         redis=redis,
         lang=lang,
@@ -287,6 +289,7 @@ async def post_emergency(
     return {
         "status": "armed",
         "expires_at": expires_at,
+        "session_id": session_id,
         "message": t("emergency_timer_started", lang, hours=body.hours),
     }
 
@@ -295,11 +298,12 @@ async def post_emergency(
 async def post_timer_cancel(
     request: Request,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
     lang = detect_lang(request)
     cancelled = await safety_service.cancel_emergency_timer(
-        user=user, redis=redis
+        user=user, db=db, redis=redis
     )
     return {
         "status": "cancelled" if cancelled else "no_active_timer",
