@@ -18,6 +18,10 @@ SpotCategory = Literal[
     "market",
     "beach",
     "park",
+    # West Africa-specific categories (see core/constants.py for social weights)
+    "maquis",
+    "club",
+    "cultural",
     "other",
 ]
 
