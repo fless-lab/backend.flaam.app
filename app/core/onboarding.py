@@ -130,11 +130,17 @@ def is_step_done(
     user: "User",
     profile: "Profile | None",
 ) -> bool:
-    """True si l'étape est déjà satisfaite (ou a été skippée)."""
-    # If onboarding has already advanced past this step, it's done
-    if _is_step_passed(step, user):
-        return True
+    """
+    True si l'étape est satisfaite — basé UNIQUEMENT sur l'état réel
+    (is_selfie_verified, profile.display_name, photos count, etc.), pas
+    sur la valeur stockée `users.onboarding_step`.
 
+    On ne court-circuite plus via `_is_step_passed` parce qu'un swap
+    d'ordre dans `ONBOARDING_FLOW` rend la valeur stockée incohérente
+    pour les comptes pré-existants. L'inspection de l'état réel est
+    auto-correctrice : peu importe ce qui s'est passé avant, si la
+    feature n'est pas remplie, l'étape n'est pas done.
+    """
     if step is OnboardingStep.CITY_SELECTION:
         return user.city_id is not None
     if step is OnboardingStep.PHONE_VERIFIED:
