@@ -28,6 +28,7 @@ from app.services import waitlist_service
 log = structlog.get_logger()
 
 
+CODES_PER_USER = 1
 CODES_PER_FEMALE = 3
 CODES_PER_AMBASSADOR = 50
 STANDARD_EXPIRY_DAYS = 30
@@ -48,11 +49,20 @@ def _is_female(user: User) -> bool:
 
 
 def _quota(user: User) -> int:
+    """
+    Quota d'invites par user :
+      - ambassador : 50 codes (pour seeding ville par influenceurs)
+      - femme : 3 codes (régule le ratio H/F en early stage)
+      - tout autre user : 1 code (chaque user peut inviter 1 ami)
+
+    Décision produit beta : ouvert à tous, mais asymétrique pour
+    encourager le ratio. À tuner si le ratio derive.
+    """
     if user.is_ambassador:
         return CODES_PER_AMBASSADOR
     if _is_female(user):
         return CODES_PER_FEMALE
-    return 0
+    return CODES_PER_USER
 
 
 def _code_type(user: User) -> str:
