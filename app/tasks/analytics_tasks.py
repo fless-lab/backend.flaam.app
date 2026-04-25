@@ -26,6 +26,8 @@ from app.celery_app import celery_app
 from app.db.session import async_session
 from app.models.city import City
 from app.models.daily_kpi import DailyKpi
+from app.models.event_checkin import EventCheckin
+from app.models.flame_scan_attempt import FlameScanAttempt
 from app.models.match import Match
 from app.models.message import Message
 from app.models.report import Report
@@ -177,6 +179,85 @@ async def _compute_for_city(
         Report.created_at < day_end,
     )
     metrics["reports"] = float(await _count(db, q))
+
+    # ── KPIs IRL (S2/S3 beta) ─────────────────────────────────────────
+    # instant_matches : matchs créés via scan QR (origin=instant_qr)
+    if city_id is not None:
+        q = (
+            select(func.count(Match.id))
+            .join(User, User.id == Match.user_a_id)
+            .where(
+                Match.created_at >= day_start,
+                Match.created_at < day_end,
+                Match.origin == "instant_qr",
+                User.city_id == city_id,
+            )
+        )
+    else:
+        q = select(func.count(Match.id)).where(
+            Match.created_at >= day_start,
+            Match.created_at < day_end,
+            Match.origin == "instant_qr",
+        )
+    metrics["instant_matches"] = float(await _count(db, q))
+
+    # event_checkins : check-ins vérifiés ce jour
+    if city_id is not None:
+        q = (
+            select(func.count(EventCheckin.id))
+            .join(User, User.id == EventCheckin.user_id)
+            .where(
+                EventCheckin.at >= day_start,
+                EventCheckin.at < day_end,
+                EventCheckin.verified.is_(True),
+                User.city_id == city_id,
+            )
+        )
+    else:
+        q = select(func.count(EventCheckin.id)).where(
+            EventCheckin.at >= day_start,
+            EventCheckin.at < day_end,
+            EventCheckin.verified.is_(True),
+        )
+    metrics["event_checkins"] = float(await _count(db, q))
+
+    # flame_scans_attempted / flame_scans_succeeded
+    if city_id is not None:
+        scanner_filter = User.city_id == city_id
+        q = (
+            select(func.count(FlameScanAttempt.id))
+            .join(User, User.id == FlameScanAttempt.scanner_id)
+            .where(
+                FlameScanAttempt.at >= day_start,
+                FlameScanAttempt.at < day_end,
+                scanner_filter,
+            )
+        )
+    else:
+        q = select(func.count(FlameScanAttempt.id)).where(
+            FlameScanAttempt.at >= day_start,
+            FlameScanAttempt.at < day_end,
+        )
+    metrics["flame_scans_attempted"] = float(await _count(db, q))
+
+    if city_id is not None:
+        q = (
+            select(func.count(FlameScanAttempt.id))
+            .join(User, User.id == FlameScanAttempt.scanner_id)
+            .where(
+                FlameScanAttempt.at >= day_start,
+                FlameScanAttempt.at < day_end,
+                FlameScanAttempt.status == "matched",
+                User.city_id == city_id,
+            )
+        )
+    else:
+        q = select(func.count(FlameScanAttempt.id)).where(
+            FlameScanAttempt.at >= day_start,
+            FlameScanAttempt.at < day_end,
+            FlameScanAttempt.status == "matched",
+        )
+    metrics["flame_scans_succeeded"] = float(await _count(db, q))
 
     return metrics
 
