@@ -44,6 +44,8 @@ from app.core.errors import FlaamError
 from app.core.exceptions import AppException
 from app.core.i18n import t
 from app.models.behavior_log import BehaviorLog
+from app.models.event import Event
+from app.models.event_checkin import EventCheckin
 from app.models.feed_cache import FeedCache
 from app.models.match import Match
 from app.models.profile import Profile
@@ -283,8 +285,15 @@ def _hydrate_profile(
     is_wildcard: bool,
     is_new_user: bool,
     geo_score: float | None = None,
+    context_event: Event | None = None,
+    context_label: str | None = None,
 ) -> dict:
-    """Produit le dict FeedProfileItem à partir des ORM entités."""
+    """Produit le dict FeedProfileItem à partir des ORM entités.
+
+    `context_event` et `context_label` sont passés quand le profil a été
+    boosté par un contexte (ex: post-event mix). Le mobile s'en sert pour
+    afficher un tag "Vous étiez à X" sur la card.
+    """
     profile = other.profile
     assert profile is not None, "hydrate_profile sur user sans profile"
 
@@ -311,6 +320,9 @@ def _hydrate_profile(
         "is_new_user": is_new_user,
         "is_wildcard": is_wildcard,
         "last_active_at": other.last_active_at,
+        "context_event_id": context_event.id if context_event else None,
+        "context_event_name": context_event.title if context_event else None,
+        "context_label": context_label,
     }
 
 
@@ -451,13 +463,237 @@ async def invalidate_city_feeds(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Boost score multiplicatif (S2) — appliqué au GET, pas dans le pipeline
+# ══════════════════════════════════════════════════════════════════════
+#
+# Design : le pipeline classe les profils 1×/jour par score base. Au GET,
+# on synthétise un score base depuis le rang (rank 0 ≈ 1.0, rank N-1 ≈ 0)
+# puis on multiplie par les boosts contextuels :
+#   final = base × active_boost × new_user_boost × post_event_boost
+# On re-trie par final, et on cap à la taille du tier (free/premium).
+#
+# Multiplicateurs LÉGERS — un profil incompatible (rank bas) ne doit pas
+# remonter en haut juste parce qu'il est actif. Cf. memory/project_feed_active_boost_design.md.
+
+# Post-event : décroît jour après jour. Au-delà de 3 jours plus d'effet.
+POST_EVENT_BOOST_BY_DAY: dict[int, float] = {
+    0: 1.30,
+    1: 1.25,
+    2: 1.20,
+    3: 1.10,
+}
+
+# Ancienne constante conservée pour le helper _apply_post_event_mix
+# (utilisé dans la response pour exposer boost_ratio au mobile).
+POST_EVENT_RATIO_BY_DAY: dict[int, float] = {
+    0: 0.8,
+    1: 0.8,
+    2: 0.6,
+    3: 0.4,
+}
+
+
+def _profile_completeness(other: User) -> int:
+    """
+    Score de complétude du profil sur 10. Critères empilables :
+      - 1 photo non supprimée                      = 2 pts
+      - 2+ photos non supprimées                   = +2 pts (total 4)
+      - 3+ photos non supprimées                   = +1 pt  (total 5)
+      - bio >= 20 chars                            = 2 pts
+      - 1+ prompt rempli                           = 1 pt
+      - 3+ tags                                    = 1 pt
+      - selfie verified                            = 1 pt
+
+    Seuil min pour être éligible au new_user_boost : 4 (cf. settings).
+    """
+    if other is None or other.profile is None:
+        return 0
+
+    score = 0
+    photos = [p for p in (other.photos or []) if not p.is_deleted]
+    if len(photos) >= 1:
+        score += 2
+    if len(photos) >= 2:
+        score += 2
+    if len(photos) >= 3:
+        score += 1
+
+    bio = other.profile.bio or ""
+    if len(bio.strip()) >= 20:
+        score += 2
+
+    prompts = other.profile.prompts or []
+    if len(prompts) >= 1:
+        score += 1
+
+    tags = other.profile.tags or []
+    if len(tags) >= 3:
+        score += 1
+
+    if other.is_selfie_verified:
+        score += 1
+
+    return score
+
+
+def _active_multiplier(other: User | None, now: datetime) -> float:
+    """Boost ×1.20 / ×1.15 / ×1.10 / ×1.0 selon last_active_at."""
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    if other is None or other.last_active_at is None:
+        return 1.0
+    delta_min = (now - other.last_active_at).total_seconds() / 60.0
+    if delta_min < 10:
+        return settings.feed_active_boost_10min
+    if delta_min < 30:
+        return settings.feed_active_boost_30min
+    if delta_min < 60:
+        return settings.feed_active_boost_60min
+    return 1.0
+
+
+def _new_user_multiplier(other: User | None, now: datetime) -> float:
+    """Boost ×1.25 si created_at < 48h ET completeness >= seuil."""
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    if other is None or other.created_at is None:
+        return 1.0
+    age_h = (now - other.created_at).total_seconds() / 3600.0
+    if age_h >= settings.feed_new_user_window_hours:
+        return 1.0
+    if _profile_completeness(other) < settings.feed_new_user_min_completeness:
+        return 1.0
+    return settings.feed_new_user_boost
+
+
+def _apply_score_boosts(
+    profile_ids: list[UUID],
+    others: dict[UUID, User],
+    *,
+    event_attendees: set[UUID],
+    days_since_event: int | None,
+    now: datetime,
+) -> tuple[list[UUID], set[UUID]]:
+    """
+    Re-classe le feed en appliquant les boosts multiplicatifs sur un
+    score base synthétisé depuis le rang initial (le pipeline a déjà
+    classé par compatibilité).
+
+    Renvoie (reordered_ids, post_event_boosted_set) pour l'hydratation.
+    """
+    if not profile_ids:
+        return profile_ids, set()
+
+    n = len(profile_ids)
+    items: list[tuple[UUID, float, bool]] = []
+    for rank, pid in enumerate(profile_ids):
+        # Score base décroissant linéairement, plancher 0.05 pour que les
+        # boosts puissent toujours déplacer le tail-end légèrement.
+        base = max(0.05, 1.0 - (rank / max(1, n)))
+        other = others.get(pid)
+
+        active_mult = _active_multiplier(other, now)
+        new_mult = _new_user_multiplier(other, now)
+        post_event_mult = (
+            POST_EVENT_BOOST_BY_DAY.get(days_since_event or -1, 1.0)
+            if pid in event_attendees
+            else 1.0
+        )
+
+        final = base * active_mult * new_mult * post_event_mult
+        items.append((pid, final, post_event_mult > 1.0))
+
+    items.sort(key=lambda x: -x[1])
+    reordered = [it[0] for it in items]
+    boosted = {it[0] for it in items if it[2]}
+    return reordered, boosted
+
+
+async def _get_recent_post_event_context(
+    user_id: UUID, db: AsyncSession,
+) -> tuple[Event, int] | None:
+    """Renvoie (event, days_since) si l'user a un check-in vérifié ≤3 jours.
+
+    On prend le check-in le plus récent. Si le user a fait plusieurs events
+    récents on prend celui qui maximise le boost (le plus récent = ratio
+    le plus élevé).
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=4)
+    result = await db.execute(
+        select(EventCheckin)
+        .where(
+            EventCheckin.user_id == user_id,
+            EventCheckin.verified.is_(True),
+            EventCheckin.at >= cutoff,
+        )
+        .order_by(EventCheckin.at.desc())
+        .limit(1),
+    )
+    checkin = result.scalar_one_or_none()
+    if checkin is None:
+        return None
+
+    event = await db.get(Event, checkin.event_id)
+    if event is None:
+        return None
+
+    days_since = (datetime.now(timezone.utc).date() - checkin.at.date()).days
+    if days_since not in POST_EVENT_RATIO_BY_DAY:
+        return None
+    return event, days_since
+
+
+async def _get_event_attendees(
+    event_id: UUID, exclude_user_id: UUID, db: AsyncSession,
+) -> set[UUID]:
+    """Set des user_ids qui ont check-in vérifié à cet event."""
+    result = await db.execute(
+        select(EventCheckin.user_id).where(
+            EventCheckin.event_id == event_id,
+            EventCheckin.verified.is_(True),
+            EventCheckin.user_id != exclude_user_id,
+        ).distinct(),
+    )
+    return {row[0] for row in result.all()}
+
+
+def _apply_post_event_mix(
+    profile_ids: list[UUID],
+    event_attendees: set[UUID],
+    days_since: int,
+) -> tuple[list[UUID], set[UUID]]:
+    """Front-load les attendees au début du feed selon le ratio du jour.
+
+    Renvoie (reordered_ids, context_set) où context_set sont les profils
+    qui doivent porter le badge "Vous étiez à X" (les attendees qu'on
+    a effectivement boostés).
+    """
+    ratio = POST_EVENT_RATIO_BY_DAY.get(days_since, 0.0)
+    if ratio <= 0:
+        return profile_ids, set()
+
+    attendees = [p for p in profile_ids if p in event_attendees]
+    others = [p for p in profile_ids if p not in event_attendees]
+
+    n = len(profile_ids)
+    target_attendees = int(round(ratio * n))
+    take = min(len(attendees), target_attendees)
+
+    front = attendees[:take]
+    back = attendees[take:] + others
+    return front + back, set(front)
+
+
+# ══════════════════════════════════════════════════════════════════════
 # GET /feed
 # ══════════════════════════════════════════════════════════════════════
 
 
 async def get_daily_feed(
     user: User, db: AsyncSession, redis_client: aioredis.Redis,
-    *, force: bool = False,
+    *, force: bool = False, context: str | None = None,
 ) -> dict:
     cached = None if force else await _read_feed_cache(user.id, redis_client, db)
     if cached is None:
@@ -517,14 +753,53 @@ async def get_daily_feed(
             actioned_ids = {row[0] for row in actioned_rows.all()}
             profile_ids = [pid for pid in profile_ids if pid not in actioned_ids]
 
+    # ── Post-event context (charge l'event + les attendees si applicable) ──
+    post_event_context: tuple[Event, int] | None = None
+    event_attendees: set[UUID] = set()
+    if context == "post_event":
+        post_event_context = await _get_recent_post_event_context(
+            user.id, db,
+        )
+        if post_event_context is not None:
+            event, _ = post_event_context
+            event_attendees = await _get_event_attendees(event.id, user.id, db)
+
+    # ── Charger les autres users (nécessaire AVANT les boosts pour
+    #    accéder à last_active_at, created_at, photos, profile) ──
     me_full = await _load_user_full(user.id, db)
     others = await _load_users_full(profile_ids, db)
 
+    # ── Appliquer les boosts multiplicatifs (active + new + post_event) ──
+    now = datetime.now(timezone.utc)
+    days_since_event = post_event_context[1] if post_event_context else None
+    profile_ids, boosted_set = _apply_score_boosts(
+        profile_ids,
+        others,
+        event_attendees=event_attendees,
+        days_since_event=days_since_event,
+        now=now,
+    )
+
+    # ── Cap au tier (free=20, premium=30 par défaut, via env) ──
+    is_premium = bool(user.is_premium)
+    from app.core.config import get_settings
+    settings_cfg = get_settings()
+    tier_cap = (
+        settings_cfg.matching_feed_size_premium
+        if is_premium
+        else settings_cfg.matching_feed_size_free
+    )
+    profile_ids = profile_ids[:tier_cap]
+
     items: list[dict] = []
+    boosted_event: Event | None = (
+        post_event_context[0] if post_event_context else None
+    )
     for pid in profile_ids:
         other = others.get(pid)
         if other is None or other.profile is None:
             continue
+        is_boosted = pid in boosted_set
         items.append(
             _hydrate_profile(
                 me_full or user,
@@ -532,11 +807,16 @@ async def get_daily_feed(
                 is_wildcard=(pid in wildcards),
                 is_new_user=(pid in new_users),
                 geo_score=None,
+                context_event=boosted_event if is_boosted else None,
+                context_label=(
+                    f"Vous étiez à {boosted_event.title}"
+                    if is_boosted and boosted_event
+                    else None
+                ),
             )
         )
 
     # Quota likes
-    is_premium = bool(user.is_premium)
     daily_quota_key = (
         "daily_likes_premium" if is_premium else "daily_likes_free"
     )
@@ -550,6 +830,18 @@ async def get_daily_feed(
         "remaining_likes": remaining,
         "is_premium": is_premium,
         "next_refresh_at": _next_midnight_utc(),
+        "post_event_context": (
+            {
+                "event_id": str(boosted_event.id),
+                "event_title": boosted_event.title,
+                "days_since": post_event_context[1],
+                "boost_ratio": POST_EVENT_RATIO_BY_DAY.get(
+                    post_event_context[1], 0.0,
+                ),
+            }
+            if post_event_context is not None
+            else None
+        ),
     }
 
 
