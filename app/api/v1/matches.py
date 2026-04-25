@@ -16,9 +16,15 @@ from app.schemas.matches import (
     LikesReceivedResponse,
     MatchDetailResponse,
     MatchListResponse,
+    SeenIrlResponse,
     UnmatchResponse,
 )
-from app.services import feed_service, instant_match_service, match_service
+from app.services import (
+    feed_service,
+    instant_match_service,
+    match_service,
+    seen_irl_service,
+)
 
 
 # ── Insta-match QR body ─────────────────────────────────────────────
@@ -112,6 +118,22 @@ async def likes_received(
     return await feed_service.get_likes_received(
         user, db, redis, lang=detect_lang(request)
     )
+
+
+@router.get("/seen-irl", response_model=SeenIrlResponse)
+async def get_seen_irl(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Liste les users que l'appelant a croisés à un event vérifié dans les
+    3 derniers jours, et avec qui il n'est pas encore en Match.
+
+    Le mobile affiche cette liste dans MatchesScreen (section "Seen IRL")
+    avec un CTA "lance une flamme" pour aller liker leur profil.
+    """
+    items = await seen_irl_service.list_seen_irl(user, db)
+    return {"items": items}
 
 
 @router.get("/{match_id}", response_model=MatchDetailResponse)

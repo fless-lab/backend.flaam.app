@@ -88,6 +88,26 @@ class LikesReceivedResponse(BaseModel):
     profiles: list[FeedProfileItem] | None = None
 
 
+# ── Seen IRL (S2) ────────────────────────────────────────────────────
+
+
+class SeenIrlItem(BaseModel):
+    """Un user croisé à un event récent (≤3j) sans Match."""
+
+    user_id: UUID
+    display_name: str
+    age: int
+    photo_url: str | None = None
+    is_verified: bool
+    event_id: UUID
+    event_title: str
+    event_at: datetime
+
+
+class SeenIrlResponse(BaseModel):
+    items: list[SeenIrlItem]
+
+
 __all__ = [
     "MatchedUserSummary",
     "LastMessagePreview",
@@ -97,4 +117,6 @@ __all__ = [
     "UnmatchResponse",
     "LikesReceivedPreview",
     "LikesReceivedResponse",
+    "SeenIrlItem",
+    "SeenIrlResponse",
 ]
