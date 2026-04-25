@@ -76,6 +76,13 @@ beat_schedule = {
         "task": "app.tasks.event_tasks.weekly_event_digest",
         "schedule": crontab(day_of_week=0, hour=18, minute=0),
     },
+    # J+1 après check-in : push doux "tu as croisé X à Y, lance une
+    # flamme ?". On planifie à 11h UTC (≈12h Lomé) pour tomber après
+    # le réveil sans être collant le matin.
+    "send-seen-irl-pushes": {
+        "task": "app.tasks.event_tasks.send_seen_irl_pushes",
+        "schedule": crontab(hour=11, minute=0),
+    },
 
     # ── Subscriptions ─────────────────────────────────────────────────
     "check-expired-subscriptions": {

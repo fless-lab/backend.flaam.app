@@ -23,7 +23,7 @@ from app.db.session import async_session
 from app.models.event import Event
 from app.models.event_registration import EventRegistration
 from app.models.user import User
-from app.services import notification_service
+from app.services import notification_service, seen_irl_service
 
 log = structlog.get_logger()
 
@@ -168,6 +168,47 @@ async def _send_post_event_nudge_async(event_id_str: str) -> dict:
     return {"nudged": nudged}
 
 
+async def _send_seen_irl_pushes_async() -> dict:
+    """
+    Push J+1 : pour chaque user qui a check-in vérifié hier, on lui envoie
+    une notification "Tu as croisé X à Y. Lance une flamme ?".
+
+    Limites pour éviter le spam :
+    - Max 1 push par user par jour (le service retourne 1 paire par target).
+    - Skip si target et other sont déjà en Match.
+    - Gated par préférence "events" (désactivable côté mobile).
+    """
+    async with async_session() as db:
+        pairs = await seen_irl_service.get_yesterday_pairs(db)
+
+        from app.models.profile import Profile
+
+        sent = 0
+        for target_id, other_id, _event_id, event_title in pairs:
+            other_name_row = await db.execute(
+                select(Profile.display_name).where(
+                    Profile.user_id == other_id,
+                ),
+            )
+            other_name = other_name_row.scalar_one_or_none() or "Quelqu'un"
+
+            res = await notification_service.send_push(
+                target_id,
+                type="notif_seen_irl",
+                data={
+                    "name": other_name,
+                    "event_title": event_title,
+                    "user_id": str(other_id),
+                },
+                db=db,
+            )
+            if res.get("sent"):
+                sent += 1
+
+    log.info("seen_irl_pushes_done", pairs=len(pairs), sent=sent)
+    return {"pairs": len(pairs), "sent": sent}
+
+
 async def _weekly_event_digest_async() -> dict:
     """Push digest des events de la semaine prochaine aux users actifs."""
     now = datetime.now(timezone.utc)
@@ -237,9 +278,15 @@ def weekly_event_digest_task() -> dict:
     return asyncio.run(_weekly_event_digest_async())
 
 
+@celery_app.task(name="app.tasks.event_tasks.send_seen_irl_pushes")
+def send_seen_irl_pushes_task() -> dict:
+    return asyncio.run(_send_seen_irl_pushes_async())
+
+
 __all__ = [
     "event_reminder_task",
     "event_status_updater_task",
     "send_post_event_nudge_task",
     "weekly_event_digest_task",
+    "send_seen_irl_pushes_task",
 ]
