@@ -53,8 +53,11 @@ class OnboardingStep(str, Enum):
 
 ONBOARDING_FLOW: list[OnboardingStep] = [
     OnboardingStep.PHONE_VERIFIED,
-    OnboardingStep.BASIC_INFO,
+    # Selfie en 2ème : on vérifie que c'est une vraie personne avant
+    # de demander le moindre détail perso. Coût psy faible (1 photo) +
+    # filtre les bots/scrapers tôt.
     OnboardingStep.SELFIE_VERIFICATION,
+    OnboardingStep.BASIC_INFO,
     OnboardingStep.SEARCH_AREA,
     OnboardingStep.PHOTOS,
     OnboardingStep.INTENTION,

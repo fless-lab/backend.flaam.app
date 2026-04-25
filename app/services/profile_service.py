@@ -158,8 +158,6 @@ _REQUIRED_FOR_CREATE = (
     "birth_date",
     "gender",
     "seeking_gender",
-    "intention",
-    "sector",
 )
 
 
