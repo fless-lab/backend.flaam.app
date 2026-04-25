@@ -285,30 +285,41 @@ async def patch_profile(
 
     profile = user.profile
     if profile is None:
-        if data:
-            profile = Profile(user_id=user.id, **data)
-            db.add(profile)
-            user.profile = profile
+        if not data:
+            # PATCH avec seulement city_id (pas de champs Profile) →
+            # rien à créer, on persiste juste l'update User.city_id.
+            await db.commit()
+            return {
+                "city_id": str(user.city_id) if user.city_id else None,
+                "onboarding_step": user.onboarding_step,
+            }
+        # Création seulement si on a tous les champs Profile NOT NULL.
+        # Si le mobile envoie un PATCH partiel (intention seul, tags
+        # seuls...) avant que BasicInfo ait créé le profile, on
+        # refuse — sinon NOT NULL violation au commit.
+        missing = [f for f in _REQUIRED_FOR_CREATE if f not in data]
+        if missing:
+            raise AppException(
+                status.HTTP_400_BAD_REQUEST,
+                f"complete_basic_info_first:{','.join(missing)}",
+            )
+        profile = Profile(user_id=user.id, **data)
+        db.add(profile)
+        user.profile = profile
     else:
         if "gender" in data and data["gender"] != profile.gender:
             raise FlaamError("gender_not_modifiable", 400, lang)
         for field, value in data.items():
             setattr(profile, field, value)
 
-    if profile is not None:
-        score, _ = compute_completeness(user, profile)
-        profile.profile_completeness = score
+    score, _ = compute_completeness(user, profile)
+    profile.profile_completeness = score
 
     advance_onboarding(user)
 
     await db.commit()
-    if profile is not None:
-        await db.refresh(profile)
-        return _profile_to_my_dict(user, profile)
-    return {
-        "city_id": str(user.city_id) if user.city_id else None,
-        "onboarding_step": user.onboarding_step,
-    }
+    await db.refresh(profile)
+    return _profile_to_my_dict(user, profile)
 
 
 # ── Completeness ─────────────────────────────────────────────────────
