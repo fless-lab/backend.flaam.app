@@ -38,6 +38,11 @@ class User(Base, UUIDMixin, TimestampMixin):
     flame_scans_received_max: Mapped[int] = mapped_column(
         Integer, default=10, server_default="10", nullable=False,
     )
+    # Si true, refuse les scans d'un scanner non vérifié (selfie). Default
+    # false pour adoption ; recommandé ON pour les femmes (UI mobile).
+    flame_scan_verified_only: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False,
+    )
 
     # Localisation éphémère pour proximity check au scan. Set quand
     # le mobile envoie sa position (PATCH /flame/me). Considérée

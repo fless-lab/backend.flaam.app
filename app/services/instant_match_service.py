@@ -30,7 +30,7 @@ Création :
 """
 
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
@@ -66,10 +66,6 @@ def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def _calculate_age(birth: date, today: date) -> int:
-    return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
-
-
 def _today_start_utc() -> datetime:
     now = datetime.now(timezone.utc)
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -78,48 +74,46 @@ def _today_start_utc() -> datetime:
 # ── Filtres ─────────────────────────────────────────────────────────
 
 
-def _check_hard_filters(scanner: User, target: User) -> None:
-    """Filtres durs identiques au feed mais sur 1 paire spécifique. Lève AppException si fail."""
+def _check_safety_filters(scanner: User, target: User) -> None:
+    """
+    Filtres SAFETY uniquement — IRL > algo (cf. roadmap-irl-loop.md).
+
+    Insta-match BYPASS volontairement : gender, age, city, intention,
+    seeking_gender. Raison produit : si l'user a montré son QR IRL,
+    c'est une validation plus forte que l'algo. Bloquer sur ces critères
+    crée un malaise IRL ("désolé t'es trop âgée").
+
+    On garde uniquement les filtres de SÉCURITÉ vraie :
+    - self-scan (technique)
+    - banned / deleted (sanction admin)
+    - target inactive/invisible (l'user a explicitement masqué son
+      compte → on respecte sa volonté)
+    - profile incomplet (target n'a pas fini onboarding)
+
+    selfie_verified n'est PAS un blocker — c'est un SIGNAL (visible dans
+    la response sous target_verified). Sauf si le target a explicitement
+    activé `flame_scan_verified_only=true` côté ses paramètres flame.
+    """
     if scanner.id == target.id:
         raise AppException(400, "self_scan")
     if scanner.is_banned or scanner.is_deleted:
         raise AppException(403, "scanner_unavailable")
-    if target.is_banned or target.is_deleted or not target.is_active or not target.is_visible:
+    if (
+        target.is_banned
+        or target.is_deleted
+        or not target.is_active
+        or not target.is_visible
+    ):
         raise AppException(403, "target_unavailable")
-    if not scanner.is_selfie_verified:
-        raise AppException(403, "selfie_not_verified")
-    if not target.is_selfie_verified:
-        raise AppException(403, "target_selfie_not_verified")
-    if scanner.city_id != target.city_id or scanner.city_id is None:
-        raise AppException(400, "different_cities")
+    if target.profile is None:
+        raise AppException(400, "target_profile_incomplete")
 
-    sp = scanner.profile
-    tp = target.profile
-    if sp is None or tp is None:
-        raise AppException(400, "profile_incomplete")
-
-    # Genre bidirectionnel (scanner.seeking accepte target.gender ET inverse)
-    if not _gender_match(sp.seeking_gender, tp.gender):
-        raise AppException(400, "gender_incompatible")
-    if not _gender_match(tp.seeking_gender, sp.gender):
-        raise AppException(400, "gender_incompatible_reverse")
-
-    # Âge bidirectionnel
-    today = date.today()
-    s_age = _calculate_age(sp.birth_date, today)
-    t_age = _calculate_age(tp.birth_date, today)
-    if not (sp.seeking_age_min <= t_age <= sp.seeking_age_max):
-        raise AppException(400, "age_out_of_scanner_range")
-    if not (tp.seeking_age_min <= s_age <= tp.seeking_age_max):
-        raise AppException(400, "age_out_of_target_range")
-
-
-def _gender_match(seeking: str, gender: str) -> bool:
-    if seeking == "men":
-        return gender == "man"
-    if seeking == "women":
-        return gender == "woman"
-    return gender in ("man", "woman", "non_binary")
+    # Verified-only : si target l'a activé, scanner doit être verified.
+    if (
+        getattr(target, "flame_scan_verified_only", False)
+        and not scanner.is_selfie_verified
+    ):
+        raise AppException(403, "target_requires_verified")
 
 
 async def _check_block(scanner_id: UUID, target_id: UUID, db: AsyncSession) -> None:
@@ -225,15 +219,22 @@ async def _check_proximity(
 # ── Idempotence ─────────────────────────────────────────────────────
 
 
-async def _find_existing_recent_match(
+async def _find_existing_match(
     scanner_id: UUID, target_id: UUID, db: AsyncSession,
 ) -> Match | None:
-    """Match instant_qr entre cette paire <24h ? Idempotent — si oui on le renvoie."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    """
+    Cherche un match entre cette paire (TOUTES origines confondues).
+
+    Cas couverts :
+    - Match instant_qr récent → idempotent, on retourne tel quel.
+    - Match feed_like pending (l'un avait liké via le feed sans réponse) →
+      on UPGRADE à matched + origin=instant_qr (le scan IRL fait office
+      de double opt-in instantané).
+    - Match feed_like matched déjà → idempotent, on retourne.
+    - Match unmatched → on respecte la décision, raise blocked-like.
+    """
     result = await db.execute(
         select(Match).where(
-            Match.origin == "instant_qr",
-            Match.created_at >= cutoff,
             or_(
                 and_(Match.user_a_id == scanner_id, Match.user_b_id == target_id),
                 and_(Match.user_a_id == target_id, Match.user_b_id == scanner_id),
@@ -244,6 +245,30 @@ async def _find_existing_recent_match(
 
 
 # ── Public API ──────────────────────────────────────────────────────
+
+
+async def _log_attempt(
+    scanner_id: UUID,
+    target_id: UUID | None,
+    status: str,
+    scanner_lat: float | None,
+    scanner_lng: float | None,
+    event_id: UUID | None,
+    db: AsyncSession,
+) -> None:
+    """Log une tentative de scan pour l'historique sécurité."""
+    from app.models.flame_scan_attempt import FlameScanAttempt
+    attempt = FlameScanAttempt(
+        scanner_id=scanner_id,
+        target_id=target_id,
+        status=status,
+        scanner_lat=scanner_lat,
+        scanner_lng=scanner_lng,
+        event_id=event_id,
+        at=datetime.now(timezone.utc),
+    )
+    db.add(attempt)
+    await db.commit()
 
 
 async def create_instant_match(
@@ -257,7 +282,37 @@ async def create_instant_match(
     """
     Crée un match direct via scan QR. Retourne (match, target_user).
     Idempotent <24h : si match récent existe, le renvoie.
+
+    Log la tentative dans flame_scan_attempts (succès et échecs) pour
+    l'historique sécurité user.
     """
+    try:
+        return await _create_instant_match_inner(
+            scanner, scanned_qr_token, scanner_lat, scanner_lng, event_id, db,
+        )
+    except AppException as e:
+        # Échec : on essaie de retrouver le target_id (le service a déjà
+        # tenté le lookup, mais l'exception peut survenir avant). On log
+        # avec target_id=None si pas résolu — l'historique sécurité du
+        # target le verra quand même (les logs réussis remontent à lui).
+        target = await flame_service.find_user_by_token(scanned_qr_token, db)
+        target_id = target.id if target else None
+        await _log_attempt(
+            scanner.id, target_id,
+            str(e.detail), scanner_lat, scanner_lng, event_id, db,
+        )
+        raise
+
+
+async def _create_instant_match_inner(
+    scanner: User,
+    scanned_qr_token: str,
+    scanner_lat: float | None,
+    scanner_lng: float | None,
+    event_id: UUID | None,
+    db: AsyncSession,
+) -> tuple[Match, User]:
+    """Logique principale (sans wrapping log). Le wrapper externe loggue."""
     # 1. Lookup target via token (incl. expiration check)
     target = await flame_service.find_user_by_token(scanned_qr_token, db)
     if target is None:
@@ -274,14 +329,38 @@ async def create_instant_match(
     if not target.flame_scan_enabled:
         raise AppException(403, "flame_scan_disabled")
 
-    # 3. Hard filters (incl. self-scan)
-    _check_hard_filters(scanner, target)
+    # 3. Safety filters (IRL > algo : on retire age/gender/city volontairement)
+    _check_safety_filters(scanner, target)
     await _check_block(scanner.id, target.id, db)
 
-    # 4. Idempotence
-    existing = await _find_existing_recent_match(scanner.id, target.id, db)
+    # 4. Match existant entre cette paire ?
+    existing = await _find_existing_match(scanner.id, target.id, db)
     if existing is not None:
-        return existing, target
+        # Cas 1: déjà unmatched → respecter la décision (refus comme un block)
+        if existing.status == "unmatched":
+            raise AppException(403, "previously_unmatched")
+        # Cas 2: déjà matched (peu importe origin) → idempotent
+        if existing.status == "matched":
+            await _log_attempt(
+                scanner.id, target.id, "idempotent",
+                scanner_lat, scanner_lng, event_id, db,
+            )
+            return existing, target
+        # Cas 3: pending (un like sans réponse via le feed) → UPGRADE
+        # Le scan IRL fait office de "double opt-in instantané".
+        if existing.status == "pending":
+            existing.status = "matched"
+            existing.origin = "instant_qr"
+            existing.matched_at = datetime.now(timezone.utc)
+            if event_id is not None:
+                existing.event_id = event_id
+            await db.commit()
+            await db.refresh(existing)
+            await _log_attempt(
+                scanner.id, target.id, "matched",
+                scanner_lat, scanner_lng, event_id, db,
+            )
+            return existing, target
 
     # 5. Rate limits
     await _check_rate_limits(scanner, target, db)
@@ -302,6 +381,10 @@ async def create_instant_match(
     db.add(match)
     await db.commit()
     await db.refresh(match)
+    await _log_attempt(
+        scanner.id, target.id, "matched",
+        scanner_lat, scanner_lng, event_id, db,
+    )
     return match, target
 
 

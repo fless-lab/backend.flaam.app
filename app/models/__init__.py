@@ -32,6 +32,7 @@ from app.models.emergency_session import EmergencySession
 from app.models.daily_kpi import DailyKpi
 from app.models.user_flame import UserFlame
 from app.models.event_checkin import EventCheckin
+from app.models.flame_scan_attempt import FlameScanAttempt
 
 __all__ = [
     "City",
@@ -66,4 +67,5 @@ __all__ = [
     "DailyKpi",
     "UserFlame",
     "EventCheckin",
+    "FlameScanAttempt",
 ]

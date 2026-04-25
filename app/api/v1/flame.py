@@ -23,6 +23,7 @@ from app.core.dependencies import get_current_user, get_db
 from app.core.exceptions import AppException
 from app.models.event import Event
 from app.models.event_checkin import EventCheckin
+from app.models.flame_scan_attempt import FlameScanAttempt
 from app.models.user import User
 from app.models.user_spot import UserSpot
 from app.services import flame_service
@@ -110,6 +111,59 @@ async def update_my_flame(
 
     await db.commit()
     return await get_my_flame(user, db)
+
+
+@router.get("/received-scans")
+async def get_received_scans(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Historique des tentatives de scan reçues (sécurité).
+
+    Free : count agrégé du jour seulement (pas de détail).
+    Premium : liste détaillée des 30 dernières tentatives avec status,
+    timestamp, et flag pour détecter les patterns suspects.
+
+    Permet aux femmes (surtout) de détecter QR fuités et harceleurs
+    persistants sans casser la fluidité IRL.
+    """
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    if not user.is_premium:
+        # Free : agrégat du jour
+        result = await db.execute(
+            select(func.count(FlameScanAttempt.id)).where(
+                FlameScanAttempt.target_id == user.id,
+                FlameScanAttempt.at >= today,
+            ),
+        )
+        return {
+            "is_premium_view": False,
+            "today_count": int(result.scalar_one() or 0),
+            "items": [],
+        }
+
+    # Premium : 30 derniers
+    result = await db.execute(
+        select(FlameScanAttempt)
+        .where(FlameScanAttempt.target_id == user.id)
+        .order_by(FlameScanAttempt.at.desc())
+        .limit(30),
+    )
+    attempts = result.scalars().all()
+    return {
+        "is_premium_view": True,
+        "today_count": sum(1 for a in attempts if a.at >= today),
+        "items": [
+            {
+                "at": a.at.isoformat(),
+                "status": a.status,
+                "scanner_id": str(a.scanner_id),
+                "event_id": str(a.event_id) if a.event_id else None,
+            }
+            for a in attempts
+        ],
+    }
 
 
 @router.get("/nearby")

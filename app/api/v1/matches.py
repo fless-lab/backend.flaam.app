@@ -38,6 +38,10 @@ class InstantMatchResponse(BaseModel):
     other_display_name: str
     icebreaker: str
     is_idempotent: bool  # True si match existait déjà <24h
+    # Signal de sécurité (pas bloqueur) : selfie vérifié côté target ?
+    # Le mobile affiche un badge ⚠️ "Compte non vérifié" si false.
+    # Pas anxiogène, pas pop-up — juste un signal couleur.
+    target_verified: bool
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
@@ -92,6 +96,7 @@ async def create_instant_match_endpoint(
         "other_display_name": target.profile.display_name if target.profile else "",
         "icebreaker": instant_match_service.build_icebreaker(body.event_id),
         "is_idempotent": is_idempotent,
+        "target_verified": bool(target.is_selfie_verified),
     }
 
 
