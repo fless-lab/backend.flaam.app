@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +27,17 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     ban_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Insta-match QR — toggle sécurité (default true). Si false, les
+    # scans externes sur ce user retournent 403 flame_scan_disabled.
+    flame_scan_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False,
+    )
+    # Plafond max scans reçus / jour. User peut baisser dans
+    # [1, FLAME_SCANS_RECEIVED_PER_DAY env var]. Default 10.
+    flame_scans_received_max: Mapped[int] = mapped_column(
+        Integer, default=10, server_default="10", nullable=False,
+    )
 
     # Admin flag — jamais modifiable via endpoint utilisateur.
     # Promotion manuelle via psql ou script seed uniquement.

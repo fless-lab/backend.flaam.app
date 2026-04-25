@@ -54,6 +54,18 @@ class Settings(BaseSettings):
     storage_root: str = "/app/uploads"
     public_base_url: str = "http://localhost:8000"
 
+    # Insta-match QR rate limits (cf. docs/roadmap-irl-loop.md)
+    # Limite quotidienne ENVOIS (différent des flammes feed).
+    flame_scans_sent_per_day: int = 5
+    # Plafond quotidien RECUS — l'user peut baisser (User.flame_scans_received_max),
+    # jamais dépasser cette valeur.
+    flame_scans_received_per_day: int = 10
+    # Distance maximale (mètres) entre scanner et scanné au moment du scan.
+    flame_scan_max_distance_m: int = 100
+    # Fenêtre temporelle (minutes) pour considérer un check-in commun comme
+    # validation de proximité (event/spot).
+    flame_scan_checkin_window_min: int = 120
+
     # Photo constraints (§3.7, §5.3)
     photo_max_size_bytes: int = 10 * 1024 * 1024  # 10 MB
     photo_min_count: int = 2  # minimum pour passer l'onboarding

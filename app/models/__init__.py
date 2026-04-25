@@ -30,6 +30,7 @@ from app.models.invite_code import InviteCode
 from app.models.emergency_contact import EmergencyContact
 from app.models.emergency_session import EmergencySession
 from app.models.daily_kpi import DailyKpi
+from app.models.user_flame import UserFlame
 
 __all__ = [
     "City",
@@ -62,4 +63,5 @@ __all__ = [
     "EmergencyContact",
     "EmergencySession",
     "DailyKpi",
+    "UserFlame",
 ]

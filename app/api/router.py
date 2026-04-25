@@ -10,6 +10,7 @@ from app.api.v1.config_api import router as config_router
 from app.api.v1.contacts import router as contacts_router
 from app.api.v1.events import router as events_router
 from app.api.v1.feed import router as feed_router
+from app.api.v1.flame import router as flame_router
 from app.api.v1.invites import router as invites_router
 from app.api.v1.matches import router as matches_router
 from app.api.v1.messages import router as messages_router
@@ -31,6 +32,7 @@ api_router.include_router(cities_router)
 api_router.include_router(invites_router)
 api_router.include_router(feed_router)
 api_router.include_router(matches_router)
+api_router.include_router(flame_router)
 api_router.include_router(messages_router)
 api_router.include_router(events_router)
 api_router.include_router(notifications_router)
