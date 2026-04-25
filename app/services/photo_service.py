@@ -154,10 +154,15 @@ async def upload_photo(
     db: AsyncSession,
 ) -> Photo:
     current_photos = await _fetch_user_photos(user, db)
-    if len(current_photos) >= settings.photo_max_count:
+    max_count = (
+        settings.photo_max_count_premium
+        if user.is_premium
+        else settings.photo_max_count_free
+    )
+    if len(current_photos) >= max_count:
         raise AppException(
             status.HTTP_400_BAD_REQUEST,
-            f"max_photos_reached:{settings.photo_max_count}",
+            f"max_photos_reached:{max_count}",
         )
 
     raw = await file.read()

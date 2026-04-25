@@ -21,71 +21,73 @@ if TYPE_CHECKING:
 
 
 class OnboardingStep(str, Enum):
-    # ── Phase 1 : Identité (bloquantes) ──
-    CITY_SELECTION = "city_selection"
+    """
+    Flow simplifié — 7 étapes bloquantes uniquement. Tout le reste
+    (bio, spots, sector, prompts, quartiers additionnels) est déplacé
+    en édition de profil avec des nudges contextuels (1er match, 1er
+    check-in...).
+    """
+    # ── Flow d'onboarding (7 étapes, dans l'ordre) ──
     PHONE_VERIFIED = "phone_verified"
-    BASIC_INFO = "basic_info"
+    BASIC_INFO = "basic_info"               # display_name + birth_date + gender + seeking_gender
     SELFIE_VERIFICATION = "selfie_verification"
-
-    # ── Phase 2 : Profil (bloquantes) ──
-    PHOTOS = "photos"
-    QUARTIERS = "quartiers"
+    SEARCH_AREA = "search_area"             # ville + quartier "lives" (1 seul écran mobile)
+    PHOTOS = "photos"                       # min 2, max 3 (free) / 6 (premium)
     INTENTION = "intention"
-    SECTOR = "sector"
-
-    # ── Phase 3 : Enrichissement (skippables) ──
-    BIO = "bio"
-    # PROMPTS : conservé en enum pour compat data historique. Plus dans
-    # le flow par défaut, poids de completeness à 0. Le front ne le
-    # propose plus.
-    PROMPTS = "prompts"
-    TAGS = "tags"
-    SPOTS = "spots"
-    NOTIFICATION_PERMISSION = "notification_permission"
+    TAGS = "tags"                           # max 8 (inchangé)
 
     # ── Terminé ──
     COMPLETED = "completed"
 
+    # ── Steps gardés en enum pour data legacy / édition profil ──
+    # Plus jamais dans le flow. Le mobile les expose dans EditProfile /
+    # Settings ou via des nudges contextuels.
+    CITY_SELECTION = "city_selection"       # legacy — fusionné dans SEARCH_AREA
+    QUARTIERS = "quartiers"                 # legacy — fusionné dans SEARCH_AREA, l'edit profil ajoute des quartiers additionnels
+    BIO = "bio"                             # nudge après 1er match
+    SPOTS = "spots"                         # nudge après 1er check-in
+    SECTOR = "sector"                       # optionnel, settings
+    PROMPTS = "prompts"                     # déprécié, code conservé pour réactivation future
+    NOTIFICATION_PERMISSION = "notification_permission"  # géré côté mobile au 1er render du feed
+
 
 ONBOARDING_FLOW: list[OnboardingStep] = [
-    OnboardingStep.CITY_SELECTION,
     OnboardingStep.PHONE_VERIFIED,
     OnboardingStep.BASIC_INFO,
     OnboardingStep.SELFIE_VERIFICATION,
+    OnboardingStep.SEARCH_AREA,
     OnboardingStep.PHOTOS,
-    OnboardingStep.QUARTIERS,
     OnboardingStep.INTENTION,
-    OnboardingStep.SECTOR,
-    OnboardingStep.BIO,
     OnboardingStep.TAGS,
-    OnboardingStep.SPOTS,
-    OnboardingStep.NOTIFICATION_PERMISSION,
     OnboardingStep.COMPLETED,
 ]
 
 SKIPPABLE_STEPS: set[OnboardingStep] = {
-    OnboardingStep.BIO,
-    OnboardingStep.TAGS,
-    OnboardingStep.SPOTS,
-    OnboardingStep.NOTIFICATION_PERMISSION,
+    # Aucune étape skippable dans l'onboarding minimal — tout est
+    # bloquant. Les enrichissements skippables (bio, spots, sector...)
+    # sont en édition profil, pas dans le flow.
 }
 
-# Poids pour le score de complétion (§13). Les prérequis valent 0 car
-# ils sont obligatoires : ne pas les faire = pas de compte.
-# PROMPTS retiré du calcul : poids 0. Sa pondération historique (0.20)
-# va sur BIO (qui le remplace côté UX).
+# Poids pour le score de complétion (§13).
+# Le score reflète l'état COMPLET du profil (onboarding + enrichissements
+# édit profil), pas seulement le flow d'inscription. Total = 1.0.
 STEP_COMPLETENESS_WEIGHT: dict[str, float] = {
-    OnboardingStep.CITY_SELECTION.value: 0.0,
+    # Onboarding (cumulé : 0.85)
     OnboardingStep.BASIC_INFO.value: 0.0,
-    OnboardingStep.SELFIE_VERIFICATION.value: 0.10,
+    OnboardingStep.SELFIE_VERIFICATION.value: 0.15,
+    OnboardingStep.SEARCH_AREA.value: 0.15,
     OnboardingStep.PHOTOS.value: 0.30,
-    OnboardingStep.QUARTIERS.value: 0.15,
-    OnboardingStep.INTENTION.value: 0.0,
-    OnboardingStep.SECTOR.value: 0.0,
-    OnboardingStep.BIO.value: 0.20,
-    OnboardingStep.PROMPTS.value: 0.0,
+    OnboardingStep.INTENTION.value: 0.10,
     OnboardingStep.TAGS.value: 0.15,
-    OnboardingStep.SPOTS.value: 0.10,
+    # Enrichissements (cumulé : 0.15) — édit profil, débloque la
+    # complétude maximum mais pas l'accès au feed.
+    OnboardingStep.BIO.value: 0.10,
+    OnboardingStep.SPOTS.value: 0.05,
+    # Désactivés / legacy (poids 0)
+    OnboardingStep.SECTOR.value: 0.0,
+    OnboardingStep.PROMPTS.value: 0.0,
+    OnboardingStep.QUARTIERS.value: 0.0,
+    OnboardingStep.CITY_SELECTION.value: 0.0,
 }
 
 
@@ -131,7 +133,12 @@ def is_step_done(
     if step is OnboardingStep.SELFIE_VERIFICATION:
         return user.is_selfie_verified
     if step is OnboardingStep.PHOTOS:
-        return _photos_count(user.photos) >= 3
+        return _photos_count(user.photos) >= 2
+    if step is OnboardingStep.SEARCH_AREA:
+        # Ville obligatoire. Les quartiers sont OPTIONNELS — l'utilisateur
+        # peut choisir "toute la ville" (0 quartier) ou un set de quartiers
+        # (1+ UserQuartier relation_type='lives'). Le geo_scorer s'adapte.
+        return user.city_id is not None
     if step is OnboardingStep.QUARTIERS:
         return any(
             uq.relation_type == "lives" for uq in (user.user_quartiers or [])

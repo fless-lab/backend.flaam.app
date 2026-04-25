@@ -149,35 +149,80 @@ async def upload_selfie(
     """
     Upload du selfie de vérification.
 
-    La photo reste `moderation_status="pending"` (modération asynchrone
-    §17). `is_selfie_verified` passe à True en MVP sans liveness check.
+    Pipeline (quand modèles ONNX dispo en prod) :
+      1. Sauvegarde la photo
+      2. YuNet détecte les visages → exactement 1 visage avec confidence
+         >= 0.8 ; sinon rejet 422
+      3. ArcFace extrait l'embedding 128D (sera comparé aux photos non-
+         selfie pour empêcher les uploads d'autres personnes)
+      4. is_selfie_verified = True
 
-    # TODO: liveness check — Session 11 ou intégration ML Kit (détection
-    # de visage + pose aléatoire + anti-spoof). Bascule via le flag
-    # `settings.selfie_liveness_required` : quand il passe True, on
-    # refuse l'upload tant que le worker n'a pas renvoyé OK.
+    En dev (modèle absent ou face_verification_enabled=False) : on accepte
+    sans détection mais on log explicitement (selfie_verified_dev_bypass).
     """
-    if settings.selfie_liveness_required:
-        # Garde-fou pour plus tard — on refuse tant que le pipeline n'est
-        # pas câblé. Ça permet d'activer le flag en prod dès que le
-        # worker de liveness est en place, sans risque de laisser passer
-        # des selfies non vérifiés.
-        from fastapi import status as _status
-
-        from app.core.exceptions import AppException
-
-        raise AppException(
-            _status.HTTP_501_NOT_IMPLEMENTED,
-            "liveness_pipeline_not_ready",
-        )
+    from app.services.face_verification_service import face_service
+    from app.services.photo_service import get_photo_disk_path
 
     photo = await photo_service.upload_photo(user, file, display_order=None, db=db)
+
+    verification_passed = False
+    verification_reason = "dev_bypass"
+
+    if settings.face_verification_enabled:
+        face_service._ensure_loaded()
+        if face_service._session is None:
+            log.warning(
+                "selfie_verified_dev_bypass",
+                user_id=str(user.id),
+                reason="face_model_not_loaded",
+            )
+        else:
+            disk_path = get_photo_disk_path(photo)
+            faces = face_service.detect_faces(disk_path)
+            high_conf = [f for f in faces if f["confidence"] >= 0.8]
+            if len(high_conf) == 0:
+                from app.core.exceptions import AppException
+                from fastapi import status as _status
+                raise AppException(
+                    _status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "selfie_no_face_detected",
+                )
+            if len(high_conf) > 1:
+                from app.core.exceptions import AppException
+                from fastapi import status as _status
+                raise AppException(
+                    _status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "selfie_multiple_faces",
+                )
+            embedding = face_service.embed_face(disk_path)
+            if embedding is None:
+                from app.core.exceptions import AppException
+                from fastapi import status as _status
+                raise AppException(
+                    _status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "selfie_embedding_failed",
+                )
+            verification_passed = True
+            verification_reason = f"face_match_confidence={high_conf[0]['confidence']:.2f}"
+    else:
+        log.warning(
+            "selfie_verified_dev_bypass",
+            user_id=str(user.id),
+            reason="face_verification_disabled",
+        )
+
     photo.is_verified_selfie = True
     user.is_selfie_verified = True
     advance_onboarding(user)
     await db.commit()
     await db.refresh(photo)
-    log.info("selfie_verified", user_id=str(user.id), photo_id=str(photo.id))
+    log.info(
+        "selfie_verified",
+        user_id=str(user.id),
+        photo_id=str(photo.id),
+        passed_real_check=verification_passed,
+        reason=verification_reason,
+    )
     return {
         "id": photo.id,
         "original_url": photo.original_url,

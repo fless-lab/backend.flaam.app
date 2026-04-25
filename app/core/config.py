@@ -56,7 +56,11 @@ class Settings(BaseSettings):
 
     # Photo constraints (§3.7, §5.3)
     photo_max_size_bytes: int = 10 * 1024 * 1024  # 10 MB
-    photo_min_count: int = 3
+    photo_min_count: int = 2  # minimum pour passer l'onboarding
+    photo_max_count_free: int = 3  # plafond user free
+    photo_max_count_premium: int = 6  # plafond user premium
+    # Legacy — env var PHOTO_MAX_COUNT. Conservé pour compat mais
+    # non utilisé : photo_service.upload_photo route via free/premium.
     photo_max_count: int = 6
 
     # Selfie verification (§13 SELFIE_VERIFICATION)
