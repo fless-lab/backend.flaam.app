@@ -163,7 +163,9 @@ async def upload_selfie(
     from app.services.face_verification_service import face_service
     from app.services.photo_service import get_photo_disk_path
 
-    photo = await photo_service.upload_photo(user, file, display_order=None, db=db)
+    photo = await photo_service.upload_photo(
+        user, file, display_order=None, db=db, is_selfie=True,
+    )
 
     verification_passed = False
     verification_reason = "dev_bypass"

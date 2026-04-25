@@ -152,18 +152,33 @@ async def upload_photo(
     file: UploadFile,
     display_order: int | None,
     db: AsyncSession,
+    is_selfie: bool = False,
 ) -> Photo:
+    """
+    Upload une photo pour le user.
+
+    - Photo profil (is_selfie=False) : limitée à photo_max_count_free
+      ou photo_max_count_premium selon le statut. Affichée dans le feed.
+    - Selfie (is_selfie=True) : 1 par user, jamais affiché dans le feed.
+      Sert uniquement à la vérification de visage. Pas de limite max
+      (un nouveau selfie remplace l'ancien si on choisit de le faire,
+      mais ce n'est pas géré ici — l'ancien reste en DB orphelin).
+    """
     current_photos = await _fetch_user_photos(user, db)
-    max_count = (
-        settings.photo_max_count_premium
-        if user.is_premium
-        else settings.photo_max_count_free
-    )
-    if len(current_photos) >= max_count:
-        raise AppException(
-            status.HTTP_400_BAD_REQUEST,
-            f"max_photos_reached:{max_count}",
+
+    if not is_selfie:
+        max_count = (
+            settings.photo_max_count_premium
+            if user.is_premium
+            else settings.photo_max_count_free
         )
+        # Compte uniquement les photos profil — le selfie est un slot séparé.
+        profile_photos = [p for p in current_photos if not p.is_verified_selfie]
+        if len(profile_photos) >= max_count:
+            raise AppException(
+                status.HTTP_400_BAD_REQUEST,
+                f"max_photos_reached:{max_count}",
+            )
 
     raw = await file.read()
     size_bytes = len(raw)
