@@ -355,6 +355,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "L'event {title} est termine ! Decouvre les profils croises.",
         "en": "Event {title} is over! Discover who you crossed paths with.",
     },
+    "notif_seen_irl": {
+        "fr": "Tu as croise {name} a {event_title}. Lance une flamme ?",
+        "en": "You crossed paths with {name} at {event_title}. Send a flame?",
+    },
     "notif_weekly_digest": {
         "fr": "{count} events cette semaine ! Le premier : {first_title}",
         "en": "{count} events this week! First up: {first_title}",

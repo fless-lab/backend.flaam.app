@@ -238,6 +238,10 @@ _NOTIF_TITLES: dict[str, dict[str, str]] = {
         "fr": "Events de la semaine",
         "en": "This week's events",
     },
+    "notif_seen_irl": {
+        "fr": "Vous vous êtes croisés",
+        "en": "You crossed paths",
+    },
 }
 
 
@@ -255,6 +259,9 @@ _DEEP_LINKS: dict[str, str] = {
     "notif_safety_alert_15min": "flaam://safety/timer",
     "notif_event_teaser": "flaam://events/{event_id}",
     "notif_weekly_digest": "flaam://events",
+    # Le push J+1 ouvre directement le profil de la personne croisée — la
+    # CTA "lance une flamme" est sur l'écran profile avec le bouton like.
+    "notif_seen_irl": "flaam://profile/{user_id}",
 }
 
 
@@ -349,6 +356,9 @@ _TYPE_TO_PREF_FIELD: dict[str, str | None] = {
     "notif_safety_alert_15min": None,  # Safety — toujours envoyé, jamais désactivable.
     "notif_event_teaser": "events",
     "notif_weekly_digest": "events",
+    # Push contextuel post-event "Tu as croisé X" — gated par la même
+    # préférence "events" car c'est event-related. Désactivable.
+    "notif_seen_irl": "events",
 }
 
 
