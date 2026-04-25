@@ -41,13 +41,15 @@ broker_connection_retry_on_startup = True
 
 beat_schedule = {
     # ── Feeds ─────────────────────────────────────────────────────────
-    # 3h UTC = 3h Lomé (UTC+0). La tâche filtre elle-même les villes
-    # hors fenêtre nocturne locale, donc la tourner à l'heure UTC seule
-    # ne suffit pas en multi-ville — à affiner en S13.
-    "generate-all-feeds": {
-        "task": "app.tasks.matching_tasks.generate_all_feeds",
-        "schedule": crontab(hour=3, minute=0),
-    },
+    # DÉSACTIVÉ — le feed est 100% on-the-fly via GET /feed avec cache
+    # Redis + invalidation au profil/like/skip. Le batch écrasait ce
+    # que l'invalidation venait de faire et créait des conflits. À
+    # ré-activer uniquement si on a une raison forte (ex: feed
+    # pré-calculé pour push notifications "people nearby today").
+    # "generate-all-feeds": {
+    #     "task": "app.tasks.matching_tasks.generate_all_feeds",
+    #     "schedule": crontab(hour=3, minute=0),
+    # },
 
     # ── Behavior ──────────────────────────────────────────────────────
     "persist-behavior-scores": {

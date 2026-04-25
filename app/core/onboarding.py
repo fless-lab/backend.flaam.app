@@ -96,22 +96,30 @@ def _photos_count(photos: list["Photo"] | None) -> int:
 
 
 def _step_index(step: OnboardingStep) -> int:
-    """Index of a step in ONBOARDING_FLOW."""
-    return ONBOARDING_FLOW.index(step)
+    """Index of a step in ONBOARDING_FLOW. -1 si le step n'est plus
+    dans le flow (legacy : sector, prompts, spots, bio, etc.)."""
+    try:
+        return ONBOARDING_FLOW.index(step)
+    except ValueError:
+        return -1
 
 
 def _is_step_passed(step: OnboardingStep, user: "User") -> bool:
     """True if user.onboarding_step is strictly after this step in the flow.
 
-    This covers skipped steps: the skip endpoint advances
-    user.onboarding_step past the skipped step, so any step before
-    the current position is either completed or skipped.
+    Si user.onboarding_step est un step legacy (hors flow), on retombe
+    sur l'inspection du profil — `is_step_done` regardera l'état réel
+    (photos count, city_id, etc.) sans s'appuyer sur la machine à états.
     """
     try:
         current = OnboardingStep(user.onboarding_step)
     except ValueError:
         return False
-    return _step_index(current) > _step_index(step)
+    current_idx = _step_index(current)
+    target_idx = _step_index(step)
+    if current_idx < 0 or target_idx < 0:
+        return False
+    return current_idx > target_idx
 
 
 def is_step_done(

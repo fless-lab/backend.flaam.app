@@ -202,7 +202,11 @@ MATCHING_FEED_LIMIT_ENABLED: bool = False  # False = pas de limite de taille
 MATCHING_FEED_SIZE: int = 12  # utilisé seulement si LIMIT_ENABLED = True
 MATCHING_FEED_MIN_SIZE: int = 8
 MATCHING_FEED_MIN_SCORE: float = 15.0  # score total minimum pour apparaître
-MATCHING_SKIP_COOLDOWN_DAYS: int = 30
+# Le pool naturellement décroissant en beta (peu de users) impose un
+# cooldown court : un skip aujourd'hui ne doit pas exclure le profil
+# pendant un mois. 10j est un bon compromis ("j'ai changé d'avis" reste
+# possible) sans pour autant rendre le skip inutile.
+MATCHING_SKIP_COOLDOWN_DAYS: int = 10
 MATCHING_ACTIVE_WINDOW_DAYS: int = 7
 
 # Implicit preferences ajustent ±15% le lifestyle score selon l'historique
