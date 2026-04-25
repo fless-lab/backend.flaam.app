@@ -11,15 +11,20 @@ Endpoints :
 """
 
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.dependencies import get_current_user, get_db
 from app.core.exceptions import AppException
+from app.models.event import Event
+from app.models.event_checkin import EventCheckin
 from app.models.user import User
+from app.models.user_spot import UserSpot
 from app.services import flame_service
 
 
@@ -105,6 +110,71 @@ async def update_my_flame(
 
     await db.commit()
     return await get_my_flame(user, db)
+
+
+@router.get("/nearby")
+async def get_nearby_count(
+    event_id: UUID | None = Query(default=None),
+    spot_id: UUID | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Renvoie le count de users récemment checked-in à un event ou un spot.
+
+    Ne LEAK aucun user_id (privacy) — juste le count + nom du venue.
+    Utilisé par le mobile pour afficher "🔥 12 personnes ici" sur le
+    FAB ou sur l'écran event/spot.
+
+    Query params : event_id OU spot_id (au moins l'un des deux).
+    """
+    if event_id is None and spot_id is None:
+        raise AppException(400, "event_id_or_spot_id_required")
+
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=settings.flame_scan_checkin_window_min,
+    )
+
+    if event_id is not None:
+        ev = await db.get(Event, event_id)
+        if ev is None:
+            raise AppException(404, "event_not_found")
+        result = await db.execute(
+            select(func.count(func.distinct(EventCheckin.user_id))).where(
+                EventCheckin.event_id == event_id,
+                EventCheckin.at >= cutoff,
+            ),
+        )
+        count = result.scalar_one() or 0
+        # On exclut soi-même du count
+        result_self = await db.execute(
+            select(func.count(EventCheckin.id)).where(
+                EventCheckin.event_id == event_id,
+                EventCheckin.user_id == user.id,
+                EventCheckin.at >= cutoff,
+            ),
+        )
+        if (result_self.scalar_one() or 0) > 0:
+            count = max(0, count - 1)
+        return {
+            "count": int(count),
+            "event_id": str(event_id),
+            "event_name": ev.title,
+        }
+
+    # spot_id : on regarde UserSpot.last_checkin_at < cutoff
+    result = await db.execute(
+        select(func.count(UserSpot.id)).where(
+            UserSpot.spot_id == spot_id,
+            UserSpot.user_id != user.id,
+            UserSpot.last_checkin_at >= cutoff,
+        ),
+    )
+    count = result.scalar_one() or 0
+    return {
+        "count": int(count),
+        "spot_id": str(spot_id),
+    }
 
 
 __all__ = ["router"]

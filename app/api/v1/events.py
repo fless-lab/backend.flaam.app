@@ -17,6 +17,8 @@ from app.schemas.events import (
     EventDetailResponse,
     EventListResponse,
     EventRegisterResponse,
+    EventSelfCheckinBody,
+    EventSelfCheckinResponse,
     EventStatsResponse,
     EventUnregisterResponse,
     MatchesPreviewResponse,
@@ -122,6 +124,37 @@ async def checkin_event(
     return await event_service.checkin_event(
         event_id, body.qr_code, db, lang=detect_lang(request)
     )
+
+
+@router.post(
+    "/{event_id}/self-checkin",
+    response_model=EventSelfCheckinResponse,
+)
+async def self_checkin_event(
+    event_id: UUID,
+    body: EventSelfCheckinBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Self check-in GPS — l'user valide qu'il est physiquement présent à
+    l'event en envoyant ses coordonnées. Le backend vérifie qu'il est
+    < 200m du venue et dans la fenêtre temporelle (event start-1h →
+    event end+2h). Crée un EventCheckin et alimente flame/nearby.
+    """
+    return await event_service.self_checkin_event(
+        event_id, user, body.lat, body.lng, db,
+    )
+
+
+@router.get("/{event_id}/present")
+async def get_event_present(
+    event_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Liste les users actuellement checked-in à cet event (<2h)."""
+    return await event_service.list_present(event_id, user, db)
 
 
 __all__ = ["router"]

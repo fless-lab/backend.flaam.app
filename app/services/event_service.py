@@ -13,7 +13,7 @@ Endpoints user-facing :
 Les endpoints admin (create, update, publish, cancel) sont en Session 10.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import structlog
@@ -553,6 +553,110 @@ async def checkin_event(
     }
 
 
+# ── Self check-in GPS (l'user prouve sa présence physique) ──────────
+
+
+async def self_checkin_event(
+    event_id: UUID,
+    user: User,
+    lat: float,
+    lng: float,
+    db: AsyncSession,
+) -> dict:
+    """
+    Vérifie : event existe, pas terminé +2h, lat/lng <200m du venue.
+    Crée un EventCheckin et alimente flame/nearby. Idempotent à la
+    minute (évite spam). Met aussi à jour user.last_lat/lng.
+    """
+    import math
+    from app.models.event_checkin import EventCheckin
+
+    ev = await db.get(Event, event_id)
+    if ev is None:
+        raise AppException(404, "event_not_found")
+
+    now = datetime.now(timezone.utc)
+    starts = ev.starts_at
+    ends = ev.ends_at or starts + timedelta(hours=4)
+    if starts.tzinfo is None:
+        starts = starts.replace(tzinfo=timezone.utc)
+    if ends.tzinfo is None:
+        ends = ends.replace(tzinfo=timezone.utc)
+    if now < starts - timedelta(hours=1):
+        raise AppException(400, "event_not_started_yet")
+    if now > ends + timedelta(hours=2):
+        raise AppException(400, "event_ended")
+
+    spot = await db.get(Spot, ev.spot_id)
+    if spot is None:
+        raise AppException(500, "spot_missing")
+
+    R = 6_371_000
+    dlat = math.radians(spot.latitude - lat)
+    dlng = math.radians(spot.longitude - lng)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat))
+        * math.cos(math.radians(spot.latitude))
+        * math.sin(dlng / 2) ** 2
+    )
+    distance = int(R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+    if distance > 200:
+        raise AppException(400, f"too_far_from_venue:{distance}m")
+
+    recent = await db.execute(
+        select(EventCheckin).where(
+            EventCheckin.user_id == user.id,
+            EventCheckin.event_id == event_id,
+            EventCheckin.at >= now - timedelta(minutes=1),
+        ),
+    )
+    if recent.first() is None:
+        ck = EventCheckin(
+            user_id=user.id, event_id=event_id,
+            lat=lat, lng=lng, verified=True, at=now,
+        )
+        db.add(ck)
+
+    user.last_lat = lat
+    user.last_lng = lng
+    user.last_location_at = now
+    await db.commit()
+
+    return {
+        "status": "checked_in",
+        "event_id": event_id,
+        "user_id": user.id,
+        "distance_to_venue_m": distance,
+    }
+
+
+async def list_present(event_id: UUID, user: User, db: AsyncSession) -> dict:
+    """
+    Liste les users actuellement présents (checked-in <2h). Free voit
+    le count seulement, premium voit la liste user_ids.
+    """
+    from app.models.event_checkin import EventCheckin
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+    result = await db.execute(
+        select(EventCheckin.user_id, func.max(EventCheckin.at))
+        .where(
+            EventCheckin.event_id == event_id,
+            EventCheckin.at >= cutoff,
+        )
+        .group_by(EventCheckin.user_id),
+    )
+    rows = result.all()
+    count = len(rows)
+    user_ids = [str(r[0]) for r in rows] if user.is_premium else []
+    return {
+        "event_id": str(event_id),
+        "present_count": count,
+        "user_ids": user_ids,
+    }
+
+
 __all__ = [
     "EVENT_CATEGORY_TO_TAGS",
     "list_events",
@@ -562,4 +666,6 @@ __all__ = [
     "matches_preview",
     "get_event_stats",
     "checkin_event",
+    "self_checkin_event",
+    "list_present",
 ]

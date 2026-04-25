@@ -119,6 +119,20 @@ class EventCheckinResponse(BaseModel):
     attendees_count: int
 
 
+# ── Self check-in GPS (mobile, l'user lui-même valide qu'il est sur place) ──
+
+class EventSelfCheckinBody(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+
+
+class EventSelfCheckinResponse(BaseModel):
+    status: Literal["checked_in"]
+    event_id: UUID
+    user_id: UUID
+    distance_to_venue_m: int
+
+
 # ── Stats anonymes (public) ───────────────────────────────────────────
 
 class EventStatsResponse(BaseModel):
@@ -147,5 +161,7 @@ __all__ = [
     "EventPreregisterVerifyResponse",
     "EventCheckinBody",
     "EventCheckinResponse",
+    "EventSelfCheckinBody",
+    "EventSelfCheckinResponse",
     "EventStatsResponse",
 ]
