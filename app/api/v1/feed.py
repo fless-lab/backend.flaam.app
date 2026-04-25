@@ -29,11 +29,21 @@ router = APIRouter(prefix="/feed", tags=["feed"])
 @router.get("", response_model=DailyFeedResponse)
 async def get_feed(
     force: bool = Query(False, description="Force feed regeneration"),
+    context: str | None = Query(
+        default=None,
+        description=(
+            "Si 'post_event', mix le feed avec les attendees du dernier "
+            "event vérifié de l'user (ratios 80/60/40/0 sur D+0..D+3)."
+        ),
+        pattern="^post_event$",
+    ),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
-    return await feed_service.get_daily_feed(user, db, redis, force=force)
+    return await feed_service.get_daily_feed(
+        user, db, redis, force=force, context=context,
+    )
 
 
 @router.get("/crossed", response_model=CrossedFeedResponse)

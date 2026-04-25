@@ -63,6 +63,22 @@ class FeedProfileItem(BaseModel):
     # badge "actif maintenant" si now - last_active_at <= 15 min.
     last_active_at: datetime | None = None
 
+    # Contexte (S2) — quand un profil est boosté par un facteur IRL
+    # (post-event, quartier commun, etc.). Le mobile affiche un tag
+    # discret "Vous étiez à X" sur la card. Null si pas de contexte.
+    context_event_id: UUID | None = None
+    context_event_name: str | None = None
+    context_label: str | None = None
+
+
+class PostEventContext(BaseModel):
+    """Indique au mobile que le feed a été boosté post-event."""
+
+    event_id: UUID
+    event_title: str
+    days_since: int = Field(..., ge=0, le=3)
+    boost_ratio: float = Field(..., ge=0.0, le=1.0)
+
 
 # ── Responses ────────────────────────────────────────────────────────
 
@@ -72,6 +88,9 @@ class DailyFeedResponse(BaseModel):
     remaining_likes: int
     is_premium: bool
     next_refresh_at: datetime
+    # Si présent, le mobile peut afficher un FlaamFeedHeader spécifique :
+    # "Vous étiez à AfroBeats Night — voici qui y était aussi".
+    post_event_context: PostEventContext | None = None
 
 
 class CrossedFeedResponse(BaseModel):
