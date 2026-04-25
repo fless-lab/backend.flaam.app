@@ -27,6 +27,20 @@ class Match(Base, UUIDMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     liked_prompt_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # ── Origine du match (insta-match QR vs feed classique) ──
+    # Valeurs : "feed_like" (default) | "instant_qr"
+    # instant_qr → bypass like mutuel, status=matched direct.
+    origin: Mapped[str] = mapped_column(
+        String(20), default="feed_like", server_default="feed_like", nullable=False,
+    )
+    # Si origin=instant_qr et le scan a eu lieu dans un event → ref l'event
+    # pour stats (matches via event vs hors event).
+    event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("events.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # ── Targeted like (Feature A, Session 9) ──
     # Quand flag_targeted_likes_enabled est actif, POST /feed/{id}/like
     # accepte target_type in {"profile","photo","prompt"}, target_id et

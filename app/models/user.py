@@ -39,6 +39,15 @@ class User(Base, UUIDMixin, TimestampMixin):
         Integer, default=10, server_default="10", nullable=False,
     )
 
+    # Localisation éphémère pour proximity check au scan. Set quand
+    # le mobile envoie sa position (PATCH /flame/me). Considérée
+    # obsolète si > flame_scan_checkin_window_min (default 120 min).
+    last_lat: Mapped[float | None] = mapped_column(nullable=True)
+    last_lng: Mapped[float | None] = mapped_column(nullable=True)
+    last_location_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+
     # Admin flag — jamais modifiable via endpoint utilisateur.
     # Promotion manuelle via psql ou script seed uniquement.
     is_admin: Mapped[bool] = mapped_column(

@@ -10,7 +10,7 @@ Endpoints :
 - POST /matches/instant déclaré dans matches.py (cohérence du domain match).
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -42,6 +42,11 @@ class FlameMeResponse(BaseModel):
 class FlameUpdateBody(BaseModel):
     scan_enabled: bool | None = None
     scans_received_max: int | None = Field(default=None, ge=1)
+    # Location éphémère pour proximity check au scan. Le mobile envoie sa
+    # position quand l'user ouvre l'écran flame ou lance un check-in
+    # explicite. Stockée pour <flame_scan_checkin_window_min minutes.
+    last_lat: float | None = Field(default=None, ge=-90, le=90)
+    last_lng: float | None = Field(default=None, ge=-180, le=180)
 
 
 # ── Routes ──────────────────────────────────────────────────────────
@@ -91,6 +96,12 @@ async def update_my_flame(
                 400, f"scans_received_max_above_cap:{cap}",
             )
         user.flame_scans_received_max = body.scans_received_max
+
+    # Location éphémère : si fournie, on persist (les 2 doivent être présents).
+    if body.last_lat is not None and body.last_lng is not None:
+        user.last_lat = body.last_lat
+        user.last_lng = body.last_lng
+        user.last_location_at = datetime.now(timezone.utc)
 
     await db.commit()
     return await get_my_flame(user, db)

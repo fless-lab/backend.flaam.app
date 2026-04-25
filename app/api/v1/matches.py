@@ -6,6 +6,7 @@ from uuid import UUID
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_redis
@@ -17,7 +18,26 @@ from app.schemas.matches import (
     MatchListResponse,
     UnmatchResponse,
 )
-from app.services import feed_service, match_service
+from app.services import feed_service, instant_match_service, match_service
+
+
+# ── Insta-match QR body ─────────────────────────────────────────────
+
+
+class InstantMatchBody(BaseModel):
+    """Body de POST /matches/instant. lat/lng optionnels si event_id fourni."""
+    scanned_qr_token: str = Field(..., min_length=20, max_length=64)
+    scanner_lat: float | None = Field(default=None, ge=-90, le=90)
+    scanner_lng: float | None = Field(default=None, ge=-180, le=180)
+    event_id: UUID | None = None
+
+
+class InstantMatchResponse(BaseModel):
+    match_id: UUID
+    other_user_id: UUID
+    other_display_name: str
+    icebreaker: str
+    is_idempotent: bool  # True si match existait déjà <24h
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
@@ -28,6 +48,51 @@ async def list_my_matches(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     return await match_service.list_matches(user, db)
+
+
+# /instant doit être déclaré AVANT /{match_id} pour éviter le route conflict.
+@router.post("/instant", response_model=InstantMatchResponse)
+async def create_instant_match_endpoint(
+    body: InstantMatchBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Crée un match direct via scan QR IRL. Bypass le double-like.
+
+    Vérifications (cf. instant_match_service) :
+    - Token valide non expiré
+    - target.flame_scan_enabled = true
+    - Hard filters bidir (city, gender, age, blocked, selfie)
+    - Idempotence 24h
+    - Rate limits scans envoyés (5/jour) + reçus (max user-controlled)
+    - Proximity GPS <100m OU event_id partagé récent
+    """
+    # Pré-check le matched user existe / hors-bande pour idempotence detection
+    existing_count = await instant_match_service._count_instant_today(
+        user.id, "scanner", db,
+    )
+
+    match, target = await instant_match_service.create_instant_match(
+        scanner=user,
+        scanned_qr_token=body.scanned_qr_token,
+        scanner_lat=body.scanner_lat,
+        scanner_lng=body.scanner_lng,
+        event_id=body.event_id,
+        db=db,
+    )
+    # is_idempotent = on a renvoyé un match existant (le compteur n'a pas bougé).
+    is_idempotent = await instant_match_service._count_instant_today(
+        user.id, "scanner", db,
+    ) == existing_count
+
+    return {
+        "match_id": match.id,
+        "other_user_id": target.id,
+        "other_display_name": target.profile.display_name if target.profile else "",
+        "icebreaker": instant_match_service.build_icebreaker(body.event_id),
+        "is_idempotent": is_idempotent,
+    }
 
 
 # /likes-received doit être déclarée AVANT /{match_id} pour éviter que
