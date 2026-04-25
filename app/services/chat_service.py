@@ -197,7 +197,24 @@ async def send_message(
         # Clé posée mais DB pas encore flush (race) → on tombera sur
         # l'IntegrityError plus bas.
 
-    # 2. Modération
+    # 2a. Anti-scam restriction des 3 premiers messages.
+    # Bloque numéro/URL/argent tant que l'expéditeur n'a pas envoyé 3
+    # messages dans cette conversation. Killer de scams en Afrique de
+    # l'Ouest (cf. notes/scam_detect.txt + roadmap).
+    from app.services import chat_restriction_service
+    scam_pattern = await chat_restriction_service.check_message(
+        match_id=match_id,
+        sender_id=sender.id,
+        content=content,
+        db=db,
+    )
+    if scam_pattern is not None:
+        await redis.delete(dedup_key)
+        raise FlaamError(
+            f"message_restricted_early:{scam_pattern}", 400, lang,
+        )
+
+    # 2b. Modération standard.
     is_first = await _is_first_message(match_id, db)
     mod = await moderation_service.check_message(
         content=content,

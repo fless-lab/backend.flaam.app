@@ -132,6 +132,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "Attention : ce type de message peut etre associe a une arnaque.",
         "en": "Warning: this type of message may be associated with a scam.",
     },
+    # Anti-scam restriction des 3 premiers messages — pas anxiogène, juste
+    # "échangez encore un peu avant ça". Suffix après ":" = pattern violé
+    # (phone_number / external_url / scam_keyword), non affiché à l'user.
+    "message_restricted_early": {
+        "fr": "Echangez quelques messages avant de partager ce type d'info.",
+        "en": "Send a few messages first before sharing that kind of info.",
+    },
+    "message_restricted_early:phone_number": {
+        "fr": "Echangez encore un peu avant de partager ton numero.",
+        "en": "Chat a bit more before sharing your phone number.",
+    },
+    "message_restricted_early:external_url": {
+        "fr": "Les liens externes ne sont pas autorises au debut de la conversation.",
+        "en": "External links aren't allowed at the start of a conversation.",
+    },
+    "message_restricted_early:scam_keyword": {
+        "fr": "Ce type de message peut etre associe a une arnaque. Echangez encore un peu d'abord.",
+        "en": "That kind of message may signal a scam. Chat a bit more first.",
+    },
     "not_match_participant": {
         "fr": "Tu ne fais pas partie de cette conversation.",
         "en": "You are not part of this conversation.",

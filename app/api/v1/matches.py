@@ -123,6 +123,24 @@ async def match_detail(
     return await match_service.get_match_detail(user, match_id, db)
 
 
+@router.get("/{match_id}/context")
+async def match_context(
+    match_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Renvoie le contexte du match (event/quartier/spot/tags/instant_qr).
+    Utilisé par mobile pour afficher ChatContextHeader au-dessus de
+    chaque conversation.
+    """
+    from app.services import match_context_service
+    return await match_context_service.get_match_context(
+        match_id, user, db, lang=detect_lang(request),
+    )
+
+
 @router.delete("/{match_id}", response_model=UnmatchResponse)
 async def delete_match(
     match_id: UUID,
