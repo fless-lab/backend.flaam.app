@@ -137,12 +137,26 @@ class Settings(BaseSettings):
 
     # Matching
     matching_batch_hour: int = 3
-    matching_feed_size: int = 12
+    matching_feed_size: int = 12  # legacy, conservé pour compat tests
+    # S2 : taille feed par tier (cap appliqué au GET, pas dans le pipeline).
+    # Le pipeline génère un pool large, l'hydratation coupe au tier de l'user.
+    matching_feed_size_free: int = 20
+    matching_feed_size_premium: int = 30
     matching_wildcard_count: int = 2
     matching_new_user_boost_days: int = 10
     matching_match_expire_days: int = 7
     matching_skip_cooldown_days: int = 30
     matching_min_weekly_visibility: int = 15
+
+    # S2 : active boost (paliers multiplicatifs sur score base au GET)
+    feed_active_boost_10min: float = 1.20
+    feed_active_boost_30min: float = 1.15
+    feed_active_boost_60min: float = 1.10
+
+    # S2 : new user boost (multiplicateur si created_at < 48h ET completeness >= 4)
+    feed_new_user_boost: float = 1.25
+    feed_new_user_window_hours: int = 48
+    feed_new_user_min_completeness: int = 4
 
     # Rate limiting
     rate_limit_default: int = 60
