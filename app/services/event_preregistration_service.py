@@ -268,7 +268,9 @@ async def promote_ghost_on_conversion(
     """
     if user.onboarding_step not in ("ghost", "pre_registered"):
         return
-    user.onboarding_step = "city_selection"
+    # 1ère étape bloquante du flow canonique (cf. core/onboarding.py).
+    # PAS "city_selection" qui est un step legacy hors flow.
+    user.onboarding_step = "selfie_verification"
     user.is_active = True
     # is_visible reste False jusqu'à la fin de l'onboarding (pattern
     # existant : on passe à is_visible=True quand l'onboarding est

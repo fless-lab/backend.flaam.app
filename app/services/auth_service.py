@@ -261,7 +261,9 @@ async def verify_otp(
             account_created_count=(
                 history.total_accounts_created + 1 if history else 1
             ),
-            onboarding_step="city_selection",
+            # 1ère étape bloquante du flow canonique (cf. core/onboarding.py).
+            # PAS "city_selection" qui est un step legacy hors flow.
+            onboarding_step="selfie_verification",
         )
         db.add(user)
 
