@@ -72,11 +72,15 @@ async def update_me(
         user, payload, db, lang=detect_lang(request)
     )
     # Invalidate city feeds if profile data affecting matching changed
-    feed_fields = {"intention", "sector", "seeking", "rhythm"}
-    if (user.city_id and feed_fields & payload.keys()) or (
+    # rhythm + languages retirés : poids = 0 dans lifestyle_scorer (v3).
+    feed_fields = {"intention", "sector", "seeking"}
+    just_completed = (
         user.onboarding_step == "completed" and old_step != "completed"
-    ):
+    )
+    if (user.city_id and feed_fields & payload.keys()) or just_completed:
         await feed_service.invalidate_city_feeds(user.city_id, db, redis)
+    if just_completed:
+        await _ensure_invite_code(user, db)
     return result
 
 
@@ -94,12 +98,30 @@ async def patch_me(
     result = await profile_service.patch_profile(
         user, payload, db, lang=detect_lang(request)
     )
-    feed_fields = {"intention", "sector", "seeking", "rhythm"}
-    if (user.city_id and feed_fields & payload.keys()) or (
+    # rhythm + languages retirés : poids = 0 dans lifestyle_scorer (v3).
+    feed_fields = {"intention", "sector", "seeking"}
+    just_completed = (
         user.onboarding_step == "completed" and old_step != "completed"
-    ):
+    )
+    if (user.city_id and feed_fields & payload.keys()) or just_completed:
         await feed_service.invalidate_city_feeds(user.city_id, db, redis)
+    if just_completed:
+        await _ensure_invite_code(user, db)
     return result
+
+
+async def _ensure_invite_code(user, db) -> None:
+    """Génère un code d'invitation au passage onboarding → completed.
+
+    Best-effort : si la génération échoue (quota=0, etc.) on n'interrompt
+    pas la complétion d'onboarding. L'user pourra toujours en générer un
+    via Settings.
+    """
+    try:
+        from app.services import invite_service
+        await invite_service.generate_codes(user, db)
+    except Exception:
+        pass
 
 
 @router.get("/me/completeness", response_model=CompletenessResponse)
