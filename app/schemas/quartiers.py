@@ -8,7 +8,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-QuartierRelationType = Literal["lives", "works", "hangs", "interested"]
+# `hangs` retiré (doublon avec UserSpot, granularité plus fine).
+QuartierRelationType = Literal["lives", "works", "interested"]
 
 
 class QuartierOut(BaseModel):
@@ -40,7 +41,6 @@ class QuartierLimit(BaseModel):
 class MyQuartiersResponse(BaseModel):
     lives: list[dict]
     works: list[dict]
-    hangs: list[dict]
     interested: list[dict]
     limits: dict[str, QuartierLimit]
 

@@ -33,7 +33,6 @@ log = structlog.get_logger()
 FREE_LIMITS: dict[str, int] = {
     "lives": 2,
     "works": 2,
-    "hangs": 4,
     "interested": 3,
 }
 PREMIUM_OVERRIDES: dict[str, int] = {"interested": 6}
@@ -200,9 +199,13 @@ async def get_my_quartiers(user: User, db: AsyncSession) -> dict:
     entries = list(result.scalars().all())
 
     grouped: dict[str, list[dict]] = {
-        "lives": [], "works": [], "hangs": [], "interested": []
+        "lives": [], "works": [], "interested": []
     }
     for uq in entries:
+        # Skip les éventuelles rows legacy 'hangs' (drop en migration mais
+        # garde-fou si la migration n'a pas encore été appliquée).
+        if uq.relation_type not in grouped:
+            continue
         q = uq.quartier
         grouped[uq.relation_type].append(
             {

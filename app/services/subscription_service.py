@@ -37,7 +37,6 @@ log = structlog.get_logger()
 FREE_QUARTIER_LIMITS_PER_TYPE: dict[str, int] = {
     "lives": 1,
     "works": 1,
-    "hangs": 1,
     "interested": 3,
 }
 FREE_SPOT_LIMIT = 5

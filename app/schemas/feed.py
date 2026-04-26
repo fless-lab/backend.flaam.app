@@ -16,7 +16,7 @@ from app.schemas.photos import PhotoResponse
 class FeedQuartier(BaseModel):
     quartier_id: UUID
     name: str
-    relation_type: Literal["lives", "works", "hangs", "interested"]
+    relation_type: Literal["lives", "works", "interested"]
 
 
 class FeedSpotInCommon(BaseModel):

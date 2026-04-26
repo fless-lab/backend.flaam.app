@@ -24,7 +24,6 @@ MATCHING_DEFAULTS: dict[str, float] = {
     # Poids des relations utilisateur↔quartier (L2 passe 1/2 — algo legacy)
     "geo_w_quartier_lives": 2.0,
     "geo_w_quartier_works": 1.5,
-    "geo_w_quartier_hangs": 1.0,
     "geo_w_quartier_interested": 0.8,
     # Seuil sous lequel on ignore la proximité (bruit des quartiers éloignés)
     "geo_proximity_threshold": 0.40,
@@ -171,7 +170,6 @@ INTENTION_COMPATIBILITY_MATRIX: dict[str, dict[str, float]] = {
 QUARTIER_RELATION_WEIGHT_KEYS: dict[str, str] = {
     "lives": "geo_w_quartier_lives",
     "works": "geo_w_quartier_works",
-    "hangs": "geo_w_quartier_hangs",
     "interested": "geo_w_quartier_interested",
 }
 
