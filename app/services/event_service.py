@@ -63,9 +63,14 @@ async def list_events(
     city_id: UUID | None,
     from_date: datetime | None,
     to_date: datetime | None,
+    user_id: UUID | None = None,
     db: AsyncSession,
 ) -> list[dict]:
-    """Events visibles = status in (published, full)."""
+    """Events visibles = status in (published, full).
+
+    Si `user_id` est fourni, chaque item porte aussi `is_registered`
+    pour que la liste mobile puisse afficher un badge sans recharger.
+    """
     stmt = (
         select(Event, Spot.name)
         .join(Spot, Spot.id == Event.spot_id)
@@ -81,6 +86,19 @@ async def list_events(
         stmt = stmt.where(Event.starts_at <= to_date)
 
     rows = (await db.execute(stmt)).all()
+
+    # Set des event_id pour lesquels l'user est inscrit (1 seule requête).
+    registered_ids: set[UUID] = set()
+    if user_id is not None and rows:
+        ids = [ev.id for ev, _ in rows]
+        reg_rows = await db.execute(
+            select(EventRegistration.event_id).where(
+                EventRegistration.user_id == user_id,
+                EventRegistration.event_id.in_(ids),
+            )
+        )
+        registered_ids = {r[0] for r in reg_rows.all()}
+
     return [
         {
             "id": ev.id,
@@ -96,6 +114,7 @@ async def list_events(
             "max_attendees": ev.max_attendees,
             "current_attendees": ev.current_attendees,
             "slug": ev.slug,
+            "is_registered": ev.id in registered_ids,
         }
         for ev, spot_name in rows
     ]

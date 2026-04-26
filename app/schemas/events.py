@@ -37,6 +37,9 @@ class EventListItem(BaseModel):
     max_attendees: int | None = None
     current_attendees: int
     slug: str | None = None
+    # Si l'user appelant est inscrit à cet event → permet à la liste
+    # mobile d'afficher un badge "Inscrit" sans recharger le détail.
+    is_registered: bool = False
 
 
 class EventListResponse(BaseModel):

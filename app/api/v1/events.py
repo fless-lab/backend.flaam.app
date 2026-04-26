@@ -33,11 +33,15 @@ async def list_events(
     city_id: UUID | None = Query(default=None),
     from_date: datetime | None = Query(default=None, alias="from"),
     to_date: datetime | None = Query(default=None, alias="to"),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     events = await event_service.list_events(
-        city_id=city_id, from_date=from_date, to_date=to_date, db=db
+        city_id=city_id,
+        from_date=from_date,
+        to_date=to_date,
+        user_id=user.id,
+        db=db,
     )
     return {"events": events}
 
