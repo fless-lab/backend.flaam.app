@@ -107,6 +107,11 @@ class MyProfileResponse(BaseModel):
     is_id_verified: bool
     is_visible: bool
     city_id: UUID | None
+    # Cooldown changement ville principale (1×/30j) — permet au mobile
+    # de pré-afficher l'état (row désactivée + date de réactivation)
+    # sans devoir tenter un PATCH et catcher 429.
+    city_changed_at: datetime | None = None
+    city_change_allowed_at: datetime | None = None
     onboarding_step: str
     updated_at: datetime
 

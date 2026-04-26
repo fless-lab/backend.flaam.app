@@ -83,9 +83,25 @@ def _profile_to_my_dict(user: User, profile: Profile) -> dict[str, Any]:
         "is_visible": user.is_visible,
         "city_id": user.city_id,
         "feed_search_mode": user.feed_search_mode,
+        "city_changed_at": user.city_changed_at,
+        "city_change_allowed_at": _city_change_allowed_at(user),
         "onboarding_step": user.onboarding_step,
         "updated_at": profile.updated_at,
     }
+
+
+def _city_change_allowed_at(user: User):
+    """Date à laquelle l'user pourra à nouveau changer sa ville principale.
+
+    None si pas de changement précédent (jamais utilisé) ou si le
+    cooldown est déjà écoulé. La constante 30j est source unique dans
+    travel_service.HOME_CITY_COOLDOWN_DAYS.
+    """
+    from datetime import timedelta
+    from app.services.travel_service import HOME_CITY_COOLDOWN_DAYS
+    if user.city_changed_at is None:
+        return None
+    return user.city_changed_at + timedelta(days=HOME_CITY_COOLDOWN_DAYS)
 
 
 def _profile_to_public_dict(user: User, profile: Profile) -> dict[str, Any]:
