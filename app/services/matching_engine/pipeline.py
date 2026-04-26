@@ -73,9 +73,11 @@ _CONFIG_KEYS = (
     # L2
     "geo_w_quartier_lives",
     "geo_w_quartier_works",
-    "geo_w_quartier_hangs",
     "geo_w_quartier_interested",
     "geo_proximity_threshold",
+    "geo_unified_set_enabled",
+    "geo_unified_bonus_lives",
+    "geo_unified_bonus_works",
     "geo_w_quartier",
     "geo_w_spot",
     "geo_w_fidelity",
