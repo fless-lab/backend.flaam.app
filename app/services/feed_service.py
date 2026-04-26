@@ -1027,11 +1027,15 @@ async def like_profile(
     if (
         target is None
         or not target.is_active
-        or not target.is_visible
         or target.is_banned
         or target.is_deleted
     ):
         raise AppException(status.HTTP_404_NOT_FOUND, "target_not_available")
+    # Pause feed (is_visible=false) : on accepte quand même le like.
+    # Le match reste pending et l'user en pause le verra dans
+    # LikesReceived à son retour. Cohérent avec la décision produit
+    # "pause feed = ne plus apparaître, mais les actions existantes
+    # restent valides". cf. project_offline_strategy + UX pause.
 
     # 2b. Feed guard — target must have been served in user's feed
     await _assert_profile_in_feed(user.id, target_id, redis_client, db, lang)
