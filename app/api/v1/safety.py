@@ -24,6 +24,9 @@ from app.schemas.safety import (
     PanicResponse,
     ReportBody,
     ReportResponse,
+    ScheduledTimerCancelResponse,
+    ScheduledTimerItem,
+    ScheduledTimerListResponse,
     ShareDateBody,
     ShareDateResponse,
     TimerCancelResponse,
@@ -282,16 +285,64 @@ async def post_emergency(
         meeting_place=body.meeting_place,
         match_id=body.match_id,
         partner_user_id=body.partner_user_id,
+        scheduled_for=body.scheduled_for,
         db=db,
         redis=redis,
         lang=lang,
     )
+    is_scheduled = body.scheduled_for is not None
     return {
-        "status": "armed",
+        "status": "scheduled" if is_scheduled else "armed",
         "expires_at": expires_at,
         "session_id": session_id,
-        "message": t("emergency_timer_started", lang, hours=body.hours),
+        "message": t(
+            "emergency_timer_scheduled" if is_scheduled else "emergency_timer_started",
+            lang, hours=body.hours,
+        ),
+        "scheduled_for": body.scheduled_for,
     }
+
+
+@router.get(
+    "/timer/scheduled",
+    response_model=ScheduledTimerListResponse,
+)
+async def list_scheduled_timers(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    sessions = await safety_service.list_scheduled_timers(user=user, db=db)
+    return {
+        "items": [
+            ScheduledTimerItem(
+                session_id=s.id,
+                scheduled_for=s.scheduled_for,
+                expires_at=s.expires_at,
+                hours=s.hours,
+                meeting_place=s.meeting_place,
+                match_id=s.match_id,
+                partner_user_id=s.partner_user_id,
+            )
+            for s in sessions
+        ],
+    }
+
+
+@router.delete(
+    "/timer/scheduled/{session_id}",
+    response_model=ScheduledTimerCancelResponse,
+)
+async def cancel_scheduled_timer(
+    session_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    lang = detect_lang(request)
+    await safety_service.cancel_scheduled_timer(
+        user=user, session_id=session_id, db=db, lang=lang,
+    )
+    return {"status": "cancelled"}
 
 
 @router.post("/timer/cancel", response_model=TimerCancelResponse)

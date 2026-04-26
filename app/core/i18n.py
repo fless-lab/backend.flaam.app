@@ -177,6 +177,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "Timer d'urgence active. Si tu ne l'annules pas dans {hours}h, ton contact sera prevenu.",
         "en": "Emergency timer started. If not cancelled within {hours}h, your contact will be notified.",
     },
+    "emergency_timer_scheduled": {
+        "fr": "Timer programme. Il s'active automatiquement le moment venu.",
+        "en": "Timer scheduled. It will activate automatically at the planned time.",
+    },
     "emergency_timer_cancelled": {
         "fr": "Timer d'urgence annule. Tout va bien.",
         "en": "Emergency timer cancelled. All good.",
@@ -326,6 +330,14 @@ MESSAGES: dict[str, dict[str, str]] = {
     "notif_daily_feed": {
         "fr": "Tes profils du jour sont prets !",
         "en": "Your daily profiles are ready!",
+    },
+    "notif_timer_starting_30min": {
+        "fr": "Ton timer demarre dans 30 min. Annuler si plus besoin.",
+        "en": "Your timer starts in 30 min. Cancel if not needed.",
+    },
+    "notif_timer_started": {
+        "fr": "Ton timer est actif. Annule a la fin si tout va bien.",
+        "en": "Your timer is now active. Cancel at the end if all is well.",
     },
     "notif_selfie_required": {
         "fr": "Reprends un selfie pour verifier ton profil.",

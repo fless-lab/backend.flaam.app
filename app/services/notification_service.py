@@ -246,6 +246,14 @@ _NOTIF_TITLES: dict[str, dict[str, str]] = {
         "fr": "Tes profils du jour",
         "en": "Your profiles of the day",
     },
+    "notif_timer_starting_30min": {
+        "fr": "Ton timer démarre dans 30 min",
+        "en": "Your timer starts in 30 min",
+    },
+    "notif_timer_started": {
+        "fr": "Ton timer a démarré",
+        "en": "Your timer has started",
+    },
 }
 
 
@@ -267,6 +275,8 @@ _DEEP_LINKS: dict[str, str] = {
     # CTA "lance une flamme" est sur l'écran profile avec le bouton like.
     "notif_seen_irl": "flaam://profile/{user_id}",
     "notif_daily_feed": "flaam://feed",
+    "notif_timer_starting_30min": "flaam://safety/timer",
+    "notif_timer_started": "flaam://safety/timer",
 }
 
 
@@ -367,6 +377,9 @@ _TYPE_TO_PREF_FIELD: dict[str, str | None] = {
     # Push quotidien "Tes profils du jour" — gated par daily_feed pref.
     # Heure d'envoi pilotée par daily_feed_hour (0..23 dans la TZ ville).
     "notif_daily_feed": "daily_feed",
+    # Safety scheduled — toujours envoyé, jamais désactivable
+    "notif_timer_starting_30min": None,
+    "notif_timer_started": None,
 }
 
 

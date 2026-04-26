@@ -131,12 +131,38 @@ class EmergencyBody(BaseModel):
     match_id: UUID | None = None
     partner_user_id: UUID | None = None
 
+    # Optionnel : si fourni, le timer est PROGRAMMÉ pour cette date.
+    # Doit être dans le futur, max 14 jours. Une Celery task l'activera
+    # automatiquement à scheduled_for. Permet d'armer un timer avant un
+    # RDV (ex: meetup samedi 19h → scheduled_for = samedi 18h30).
+    scheduled_for: datetime | None = None
+
 
 class EmergencyResponse(BaseModel):
-    status: Literal["armed"]
+    # "armed" = actif maintenant. "scheduled" = en attente d'activation.
+    status: Literal["armed", "scheduled"]
     expires_at: datetime
     session_id: UUID | None = None
     message: str | None = None
+    scheduled_for: datetime | None = None
+
+
+class ScheduledTimerItem(BaseModel):
+    session_id: UUID
+    scheduled_for: datetime
+    expires_at: datetime
+    hours: float
+    meeting_place: str | None = None
+    match_id: UUID | None = None
+    partner_user_id: UUID | None = None
+
+
+class ScheduledTimerListResponse(BaseModel):
+    items: list[ScheduledTimerItem]
+
+
+class ScheduledTimerCancelResponse(BaseModel):
+    status: Literal["cancelled"]
 
 
 class TimerCancelResponse(BaseModel):

@@ -295,7 +295,178 @@ def send_emergency_sms() -> dict:
     return asyncio.run(_run())
 
 
+# ══════════════════════════════════════════════════════════════════════
+# Scheduled timers
+# ══════════════════════════════════════════════════════════════════════
+
+
+async def _activate_scheduled_timers_async(db, redis) -> dict:
+    """
+    Active les timers scheduled dont scheduled_for <= now.
+
+    Pour chaque timer prêt :
+      - Re-calcule started_at = now, expires_at = now + hours
+      - Set la clé Redis safety:timer:{user_id}
+      - Push notif_timer_started
+      - Clear scheduled_for (timer devient un "vrai" actif normal)
+
+    Retourne {"activated": int}.
+    """
+    import json
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import select
+
+    from app.models.emergency_session import EmergencySession
+    from app.models.user import User as _User
+    from app.services import notification_service
+    from app.services.safety_service import (
+        TIMER_KEY,
+        TIMER_GRACE_SECONDS,
+        TIMER_WARNED_KEY,
+        _user_display_name,
+    )
+
+    now = datetime.now(timezone.utc)
+    rows = await db.execute(
+        select(EmergencySession).where(
+            EmergencySession.scheduled_for.isnot(None),
+            EmergencySession.scheduled_for <= now,
+            EmergencySession.ended_at.is_(None),
+        ),
+    )
+    sessions = list(rows.scalars())
+    activated = 0
+
+    for s in sessions:
+        # Si l'user a déjà un timer actif → on skip (pas d'overlap).
+        # Le scheduled reste en attente jusqu'à ce que l'autre se termine
+        # (au prochain run de la task, on retentera).
+        existing = await redis.get(TIMER_KEY.format(user_id=str(s.user_id)))
+        if existing is not None:
+            continue
+
+        timer_seconds = int(s.hours * 3600)
+        new_started = now
+        new_expires = datetime.fromtimestamp(
+            now.timestamp() + timer_seconds, tz=timezone.utc,
+        )
+
+        # Charge user pour le payload Redis (display_name).
+        user_row = await db.execute(
+            select(_User).where(_User.id == s.user_id),
+        )
+        user = user_row.scalar_one_or_none()
+        if user is None or user.is_deleted or user.is_banned:
+            # User inactif → annule le scheduled.
+            s.ended_at = now
+            s.end_reason = "user_unavailable"
+            continue
+
+        s.started_at = new_started
+        s.expires_at = new_expires
+        s.scheduled_for = None  # Bascule en actif "normal"
+
+        payload = {
+            "user_id": str(s.user_id),
+            "user_name": _user_display_name(user),
+            "contacts": s.contacts_snapshot,
+            "started_at": new_started.isoformat(),
+            "expires_at_utc": new_expires.isoformat(),
+            "latitude": s.latitude,
+            "longitude": s.longitude,
+            "location_updated_at": None,
+            "meeting_place": s.meeting_place,
+            "session_id": str(s.id),
+            "partner_user_id": (
+                str(s.partner_user_id) if s.partner_user_id else None
+            ),
+        }
+        await redis.set(
+            TIMER_KEY.format(user_id=str(s.user_id)),
+            json.dumps(payload),
+            ex=timer_seconds + TIMER_GRACE_SECONDS,
+        )
+        await redis.delete(TIMER_WARNED_KEY.format(user_id=str(s.user_id)))
+
+        # Push "ton timer a démarré"
+        await notification_service.send_push(
+            s.user_id, type="notif_timer_started", db=db,
+        )
+        activated += 1
+
+    await db.commit()
+    log.info("scheduled_timers_activated", count=activated)
+    return {"activated": activated}
+
+
+async def _warn_scheduled_timers_30min_async(db, redis) -> dict:
+    """Push T-30 min avant l'activation pour donner une chance d'annuler."""
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import select
+
+    from app.models.emergency_session import EmergencySession
+    from app.services import notification_service
+
+    now = datetime.now(timezone.utc)
+    window_start = now + timedelta(minutes=25)
+    window_end = now + timedelta(minutes=35)
+
+    rows = await db.execute(
+        select(EmergencySession).where(
+            EmergencySession.scheduled_for.isnot(None),
+            EmergencySession.scheduled_for >= window_start,
+            EmergencySession.scheduled_for <= window_end,
+            EmergencySession.ended_at.is_(None),
+        ),
+    )
+    sessions = list(rows.scalars())
+    warned = 0
+
+    for s in sessions:
+        # Idempotence : flag Redis 1 push par session.
+        flag_key = f"safety:timer:warn30:{s.id}"
+        if await redis.exists(flag_key):
+            continue
+        res = await notification_service.send_push(
+            s.user_id, type="notif_timer_starting_30min", db=db,
+        )
+        if res.get("sent"):
+            await redis.set(flag_key, "1", ex=3600)
+            warned += 1
+
+    log.info("scheduled_timers_warned", count=warned)
+    return {"warned": warned}
+
+
+@celery_app.task(name="app.tasks.emergency_tasks.activate_scheduled_timers")
+def activate_scheduled_timers() -> dict:
+    async def _run():
+        if redis_pool._pool is None:  # noqa: SLF001
+            await redis_pool.initialize()
+        async with async_session() as db:
+            return await _activate_scheduled_timers_async(
+                db, redis_pool.client,
+            )
+    return asyncio.run(_run())
+
+
+@celery_app.task(name="app.tasks.emergency_tasks.warn_scheduled_timers_30min")
+def warn_scheduled_timers_30min() -> dict:
+    async def _run():
+        if redis_pool._pool is None:  # noqa: SLF001
+            await redis_pool.initialize()
+        async with async_session() as db:
+            return await _warn_scheduled_timers_30min_async(
+                db, redis_pool.client,
+            )
+    return asyncio.run(_run())
+
+
 __all__ = [
     "_send_emergency_sms_async",
     "send_emergency_sms",
+    "_activate_scheduled_timers_async",
+    "activate_scheduled_timers",
+    "_warn_scheduled_timers_30min_async",
+    "warn_scheduled_timers_30min",
 ]

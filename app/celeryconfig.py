@@ -111,6 +111,16 @@ beat_schedule = {
         "task": "app.tasks.emergency_tasks.send_emergency_sms",
         "schedule": 60.0,  # toutes les minutes
     },
+    # Active les timers scheduled dont scheduled_for est passé.
+    "activate-scheduled-timers": {
+        "task": "app.tasks.emergency_tasks.activate_scheduled_timers",
+        "schedule": 60.0,  # toutes les minutes
+    },
+    # Avertit l'user 30 min avant le démarrage automatique.
+    "warn-scheduled-timers-30min": {
+        "task": "app.tasks.emergency_tasks.warn_scheduled_timers_30min",
+        "schedule": 300.0,  # toutes les 5 min (fenêtre 25..35)
+    },
 
     # ── Analytics ─────────────────────────────────────────────────────
     "compute-daily-kpis": {
