@@ -33,11 +33,14 @@ import math
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+import structlog
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.exceptions import AppException
+
+log = structlog.get_logger()
 from app.models.block import Block
 from app.models.event_registration import EventRegistration
 from app.models.match import Match
@@ -390,7 +393,58 @@ async def _create_instant_match_inner(
     if scanner_lat is not None and scanner_lng is not None:
         from app.services import travel_service as _travel
         await _travel.try_confirm_travel(scanner, scanner_lat, scanner_lng, db)
+    # Push WS aux 2 users en simultané (animation match synchronisée).
+    # Best-effort, no-op si l'un ou l'autre n'est pas connecté.
+    await _broadcast_instant_match(scanner, target, match)
     return match, target
+
+
+async def _broadcast_instant_match(
+    scanner: User, target: User, match: Match,
+) -> None:
+    """Pousse `instant_match_created` aux 2 user_ids via WebSocket.
+
+    Permet aux 2 phones de déclencher l'animation MatchOverlay en même
+    temps (delta typique <200ms). Inclut le `partner_seed` (= partner.user_id)
+    pour que la collision animation rende le sceau de l'autre.
+    """
+    # Import local pour éviter cycle import (instant_match ⇄ ws.chat).
+    from app.ws.chat import connection_manager
+
+    def _payload_for(viewer: User, partner: User) -> dict:
+        partner_name = (
+            partner.profile.display_name if partner.profile else None
+        )
+        return {
+            "type": "instant_match_created",
+            "match_id": str(match.id),
+            "partner_id": str(partner.id),
+            "partner_seed": str(partner.id),
+            "partner_name": partner_name,
+            "partner_verified": partner.is_selfie_verified,
+            "created_at": match.created_at.isoformat(),
+        }
+
+    try:
+        await connection_manager.send_to(
+            scanner.id, _payload_for(scanner, target),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "instant_match_ws_push_failed",
+            user_id=str(scanner.id),
+            err=str(exc),
+        )
+    try:
+        await connection_manager.send_to(
+            target.id, _payload_for(target, scanner),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "instant_match_ws_push_failed",
+            user_id=str(target.id),
+            err=str(exc),
+        )
 
 
 def build_icebreaker(event_id: UUID | None) -> str:
