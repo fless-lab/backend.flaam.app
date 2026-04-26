@@ -9,15 +9,15 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-# Durées proposées : 3, 7 (default), 14, 30 jours. Pas de "personnalisé"
-# ni de durées >30j → au-delà l'user doit changer sa ville principale.
-TravelDuration = Literal["3d", "7d", "14d", "30d"]
-
-
 class TravelActivateBody(BaseModel):
-    """Activer le mode voyage."""
+    """Activer le mode voyage.
+
+    `duration_days` : 1..30. Le mobile expose des presets 3/7/14/30 +
+    un picker "Personnaliser" (slider 1-30). Aucune durée >30j ;
+    au-delà l'user doit changer sa ville principale.
+    """
     city_id: UUID
-    duration: TravelDuration = "7d"
+    duration_days: int = Field(7, ge=1, le=30)
 
 
 class TravelStatusResponse(BaseModel):
@@ -65,7 +65,6 @@ class CityChangeResponse(BaseModel):
 
 
 __all__ = [
-    "TravelDuration",
     "TravelActivateBody",
     "TravelStatusResponse",
     "CityChangeBody",

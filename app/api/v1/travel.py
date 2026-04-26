@@ -50,7 +50,7 @@ async def activate_travel(
     db: AsyncSession = Depends(get_db),
 ) -> TravelStatusResponse:
     return await travel_service.activate(
-        user, body.city_id, body.duration, db, detect_lang(request),
+        user, body.city_id, body.duration_days, db, detect_lang(request),
     )
 
 

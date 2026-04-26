@@ -25,7 +25,6 @@ from app.models.city import City
 from app.models.user import User
 from app.schemas.travel import (
     CityChangeResponse,
-    TravelDuration,
     TravelStatusResponse,
 )
 
@@ -42,13 +41,10 @@ GPS_CONFIRMATION_RADIUS_KM = 30.0
 GPS_CONFIRMATION_VALID_HOURS = 24
 
 
-def _duration_to_delta(duration: TravelDuration) -> timedelta:
-    return {
-        "3d": timedelta(days=3),
-        "7d": timedelta(days=7),
-        "14d": timedelta(days=14),
-        "30d": timedelta(days=30),
-    }[duration]
+def _duration_to_delta(duration_days: int) -> timedelta:
+    # Bornes défensives en cas d'appel direct (l'API plafonne déjà).
+    days = max(1, min(30, int(duration_days)))
+    return timedelta(days=days)
 
 
 def is_traveling(user: User, now: datetime | None = None) -> bool:
@@ -156,7 +152,7 @@ async def get_status(
 async def activate(
     user: User,
     city_id: UUID,
-    duration: TravelDuration,
+    duration_days: int,
     db: AsyncSession,
     lang: str = "fr",
 ) -> TravelStatusResponse:
@@ -190,7 +186,7 @@ async def activate(
 
     user.travel_city_id = city_id
     user.travel_started_at = now
-    user.travel_until = now + _duration_to_delta(duration)
+    user.travel_until = now + _duration_to_delta(duration_days)
     user.travel_extension_used = False
     user.travel_gps_confirmed_at = None
     user.travel_activations_count_30d = (
