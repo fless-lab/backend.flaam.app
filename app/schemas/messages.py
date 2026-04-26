@@ -18,11 +18,31 @@ class SendMessageBody(BaseModel):
 
 
 class MeetupProposalBody(BaseModel):
-    spot_id: UUID
+    """
+    Lieu : 3 modes au choix (au moins 1 doit être renseigné) :
+      - spot_id : référence un spot connu (recommandé pour spots in common)
+      - spot_name : saisie libre ("chez moi", "place du marché")
+      - spot_lat + spot_lng : pin sur map (optionnel — affiche un mini map)
+    """
+    spot_id: UUID | None = None
+    spot_name: str | None = Field(default=None, max_length=120)
+    spot_lat: float | None = Field(default=None, ge=-90, le=90)
+    spot_lng: float | None = Field(default=None, ge=-180, le=180)
     proposed_date: date
     proposed_time: time
     note: str | None = Field(default=None, max_length=500)
     client_message_id: str = Field(..., min_length=1, max_length=64)
+
+
+class MeetupUpdateBody(BaseModel):
+    """Payload pour PATCH /chats/messages/{message_id}/meetup."""
+    spot_id: UUID | None = None
+    spot_name: str | None = Field(default=None, max_length=120)
+    spot_lat: float | None = Field(default=None, ge=-90, le=90)
+    spot_lng: float | None = Field(default=None, ge=-180, le=180)
+    proposed_date: date | None = None
+    proposed_time: time | None = None
+    note: str | None = Field(default=None, max_length=500)
 
 
 class MeetupResponseBody(BaseModel):

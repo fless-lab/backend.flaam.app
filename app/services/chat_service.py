@@ -496,7 +496,10 @@ async def send_voice(
 async def propose_meetup(
     match_id: UUID,
     sender: User,
-    spot_id: UUID,
+    spot_id: UUID | None,
+    spot_name: str | None,
+    spot_lat: float | None,
+    spot_lng: float | None,
     proposed_date: date,
     proposed_time: time,
     note: str | None,
@@ -507,11 +510,24 @@ async def propose_meetup(
 ) -> dict:
     match = await _get_active_match(match_id, sender.id, db, lang)
 
-    spot = await db.get(Spot, spot_id)
-    if spot is None or not spot.is_active:
-        raise AppException(status.HTTP_404_NOT_FOUND, "spot_not_found")
-    if sender.city_id is not None and spot.city_id != sender.city_id:
-        raise AppException(status.HTTP_400_BAD_REQUEST, "spot_outside_city")
+    # Au moins une source de lieu doit être fournie.
+    if spot_id is None and not (spot_name and spot_name.strip()) and (
+        spot_lat is None or spot_lng is None
+    ):
+        raise AppException(
+            status.HTTP_400_BAD_REQUEST, "meetup_location_required",
+        )
+
+    resolved_name = spot_name.strip() if spot_name else None
+    if spot_id is not None:
+        spot = await db.get(Spot, spot_id)
+        if spot is None or not spot.is_active:
+            raise AppException(status.HTTP_404_NOT_FOUND, "spot_not_found")
+        if sender.city_id is not None and spot.city_id != sender.city_id:
+            raise AppException(status.HTTP_400_BAD_REQUEST, "spot_outside_city")
+        # Si pas de spot_name custom fourni, on utilise celui du spot.
+        if resolved_name is None:
+            resolved_name = spot.name
 
     # Dédup
     dedup_key = DEDUP_KEY.format(
@@ -526,8 +542,10 @@ async def propose_meetup(
                 return _msg_to_dict(existing)
 
     meetup_data = {
-        "spot_id": str(spot_id),
-        "spot_name": spot.name,
+        "spot_id": str(spot_id) if spot_id else None,
+        "spot_name": resolved_name,
+        "spot_lat": spot_lat,
+        "spot_lng": spot_lng,
         "proposed_date": proposed_date.isoformat(),
         "proposed_time": proposed_time.isoformat(timespec="minutes"),
         "note": note,
@@ -576,7 +594,91 @@ async def propose_meetup(
 
 
 # ══════════════════════════════════════════════════════════════════════
-# PATCH /messages/{message_id}/meetup
+# PATCH /messages/{message_id}/meetup (sender update before response)
+# ══════════════════════════════════════════════════════════════════════
+
+
+async def update_meetup(
+    message_id: UUID,
+    sender: User,
+    spot_id: UUID | None,
+    spot_name: str | None,
+    spot_lat: float | None,
+    spot_lng: float | None,
+    proposed_date: date | None,
+    proposed_time: time | None,
+    note: str | None,
+    db: AsyncSession,
+    redis: aioredis.Redis,
+    lang: str = "fr",
+) -> dict:
+    """
+    Permet à l'expéditeur de modifier sa proposition meetup tant qu'elle
+    est en status='proposed'. Si déjà accepted/refused, refuse.
+
+    Effets :
+    - Maj des champs fournis (les autres restent inchangés)
+    - Status reset à "proposed" si modifié pendant counter (rare cas)
+    - Notification WS au receveur via le push de message standard.
+    """
+    msg = await db.get(Message, message_id)
+    if msg is None or msg.message_type != "meetup":
+        raise AppException(status.HTTP_404_NOT_FOUND, "meetup_not_found")
+    if msg.sender_id != sender.id:
+        raise AppException(status.HTTP_403_FORBIDDEN, "not_meetup_sender")
+
+    data = dict(msg.meetup_data or {})
+    current_status = data.get("status", "proposed")
+    if current_status not in ("proposed", "countered"):
+        raise AppException(
+            status.HTTP_409_CONFLICT, "meetup_already_responded",
+        )
+
+    match = await _get_active_match(msg.match_id, sender.id, db, lang)
+
+    # Lieu : si on update spot_id ou spot_name/lat/lng, on revalide
+    if spot_id is not None:
+        spot = await db.get(Spot, spot_id)
+        if spot is None or not spot.is_active:
+            raise AppException(status.HTTP_404_NOT_FOUND, "spot_not_found")
+        if sender.city_id is not None and spot.city_id != sender.city_id:
+            raise AppException(status.HTTP_400_BAD_REQUEST, "spot_outside_city")
+        data["spot_id"] = str(spot_id)
+        data["spot_name"] = spot_name.strip() if spot_name else spot.name
+    elif spot_name is not None:
+        data["spot_id"] = None
+        data["spot_name"] = spot_name.strip()
+    if spot_lat is not None:
+        data["spot_lat"] = spot_lat
+    if spot_lng is not None:
+        data["spot_lng"] = spot_lng
+    if proposed_date is not None:
+        data["proposed_date"] = proposed_date.isoformat()
+    if proposed_time is not None:
+        data["proposed_time"] = proposed_time.isoformat(timespec="minutes")
+    if note is not None:
+        data["note"] = note
+    # Reset l'état à proposed (le destinataire devra re-confirmer).
+    data["status"] = "proposed"
+    data["counter_date"] = None
+    data["counter_time"] = None
+
+    msg.meetup_data = data
+    msg.content = data.get("note")
+    msg.updated_at = datetime.now(timezone.utc)
+    match.last_message_at = msg.updated_at
+    await db.commit()
+    await db.refresh(msg)
+
+    # Push live au destinataire — on réutilise le push de "new message"
+    # car l'autre user doit voir la mise à jour comme un signal actif.
+    await _try_push_live(match, sender.id, msg, db, redis)
+
+    return _msg_to_dict(msg)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# POST /messages/{message_id}/meetup_response
 # ══════════════════════════════════════════════════════════════════════
 
 

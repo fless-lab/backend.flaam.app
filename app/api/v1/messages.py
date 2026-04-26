@@ -21,6 +21,7 @@ from app.core.rate_limiter import rate_limit
 from app.models.user import User
 from app.schemas.messages import (
     MeetupProposalBody,
+    MeetupUpdateBody,
     MeetupResponseBody,
     MessageListResponse,
     MessageResponse,
@@ -151,6 +152,9 @@ async def send_meetup(
         match_id=match_id,
         sender=user,
         spot_id=body.spot_id,
+        spot_name=body.spot_name,
+        spot_lat=body.spot_lat,
+        spot_lng=body.spot_lng,
         proposed_date=body.proposed_date,
         proposed_time=body.proposed_time,
         note=body.note,
@@ -177,6 +181,34 @@ async def respond_meetup_msg(
         counter_date=body.counter_date,
         counter_time=body.counter_time,
         db=db,
+        lang=lang,
+    )
+
+
+@router.patch("/{message_id}/meetup/edit", response_model=MessageResponse)
+async def edit_meetup_msg(
+    message_id: UUID,
+    body: MeetupUpdateBody,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> dict:
+    """Permet à l'expéditeur de modifier sa proposition meetup avant
+    qu'elle soit acceptée/refusée. Reset le statut à 'proposed'."""
+    lang = detect_lang(request)
+    return await chat_service.update_meetup(
+        message_id=message_id,
+        sender=user,
+        spot_id=body.spot_id,
+        spot_name=body.spot_name,
+        spot_lat=body.spot_lat,
+        spot_lng=body.spot_lng,
+        proposed_date=body.proposed_date,
+        proposed_time=body.proposed_time,
+        note=body.note,
+        db=db,
+        redis=redis,
         lang=lang,
     )
 
