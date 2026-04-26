@@ -242,6 +242,10 @@ _NOTIF_TITLES: dict[str, dict[str, str]] = {
         "fr": "Vous vous êtes croisés",
         "en": "You crossed paths",
     },
+    "notif_daily_feed": {
+        "fr": "Tes profils du jour",
+        "en": "Your profiles of the day",
+    },
 }
 
 
@@ -262,6 +266,7 @@ _DEEP_LINKS: dict[str, str] = {
     # Le push J+1 ouvre directement le profil de la personne croisée — la
     # CTA "lance une flamme" est sur l'écran profile avec le bouton like.
     "notif_seen_irl": "flaam://profile/{user_id}",
+    "notif_daily_feed": "flaam://feed",
 }
 
 
@@ -359,6 +364,9 @@ _TYPE_TO_PREF_FIELD: dict[str, str | None] = {
     # Push contextuel post-event "Tu as croisé X" — gated par la même
     # préférence "events" car c'est event-related. Désactivable.
     "notif_seen_irl": "events",
+    # Push quotidien "Tes profils du jour" — gated par daily_feed pref.
+    # Heure d'envoi pilotée par daily_feed_hour (0..23 dans la TZ ville).
+    "notif_daily_feed": "daily_feed",
 }
 
 

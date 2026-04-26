@@ -63,6 +63,16 @@ beat_schedule = {
         "schedule": 21600.0,  # toutes les 6h
     },
 
+    # ── Feed (push quotidien "Tes profils du jour") ──────────────────
+    # Tourne toutes les 15 min : pour chaque user, vérifie si son
+    # daily_feed_hour matche l'heure courante dans la TZ de sa ville.
+    # Dedup par jour côté task pour éviter doublons. Coût : 1 query
+    # User+City+NotifPref par run.
+    "send-daily-feed-pushes": {
+        "task": "app.tasks.feed_tasks.send_daily_feed_pushes",
+        "schedule": 900.0,  # 15 min
+    },
+
     # ── Events ────────────────────────────────────────────────────────
     "event-reminder": {
         "task": "app.tasks.event_tasks.event_reminder",

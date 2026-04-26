@@ -35,6 +35,7 @@ celery_app.autodiscover_tasks(
         "app.tasks.cleanup_tasks",
         "app.tasks.emergency_tasks",
         "app.tasks.event_tasks",
+        "app.tasks.feed_tasks",
         "app.tasks.matching_tasks",
         "app.tasks.photo_tasks",
         "app.tasks.reminder_tasks",
