@@ -130,6 +130,9 @@ def _profile_to_public_dict(user: User, profile: Profile) -> dict[str, Any]:
         "travel_until": (
             user.travel_until if _is_user_traveling(user) else None
         ),
+        "travel_confirmed": (
+            _is_travel_confirmed(user) if _is_user_traveling(user) else False
+        ),
     }
 
 
@@ -138,6 +141,15 @@ def _is_user_traveling(user: User) -> bool:
     if user.travel_city_id is None or user.travel_until is None:
         return False
     return user.travel_until > datetime.now(timezone.utc)
+
+
+def _is_travel_confirmed(user: User) -> bool:
+    from datetime import datetime, timedelta, timezone
+    if user.travel_gps_confirmed_at is None:
+        return False
+    return (datetime.now(timezone.utc) - user.travel_gps_confirmed_at) < (
+        timedelta(hours=24)
+    )
 
 
 # ── Read ─────────────────────────────────────────────────────────────

@@ -385,6 +385,11 @@ async def _create_instant_match_inner(
         scanner.id, target.id, "matched",
         scanner_lat, scanner_lng, event_id, db,
     )
+    # Side-effect : confirme le voyage du scanner si le scan a eu lieu
+    # dans la ville de destination. Silencieux si pas en voyage / loin.
+    if scanner_lat is not None and scanner_lng is not None:
+        from app.services import travel_service as _travel
+        await _travel.try_confirm_travel(scanner, scanner_lat, scanner_lng, db)
     return match, target
 
 

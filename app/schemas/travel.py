@@ -34,6 +34,10 @@ class TravelStatusResponse(BaseModel):
     travel_started_at: datetime | None = None
     travel_until: datetime | None = None
     extension_used: bool = False
+    gps_confirmed: bool = Field(
+        False,
+        description="True si présence GPS validée dans la ville de destination < 24h",
+    )
     can_extend: bool = Field(
         False,
         description="true si actif ET extension pas encore utilisée",

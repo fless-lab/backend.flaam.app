@@ -34,6 +34,13 @@ MAX_ACTIVATIONS_PER_30D = 2
 EXTENSION_DAYS = 7
 HOME_CITY_COOLDOWN_DAYS = 30
 
+# Rayon de validation GPS autour du centre de la ville de destination.
+# 30km couvre les agglomérations africaines (Lomé, Abidjan, Dakar) sans
+# accepter une confirmation depuis une autre ville voisine.
+GPS_CONFIRMATION_RADIUS_KM = 30.0
+# Le badge "Confirmé" reste affiché 24h après la dernière détection.
+GPS_CONFIRMATION_VALID_HOURS = 24
+
 
 def _duration_to_delta(duration: TravelDuration) -> timedelta:
     return {
@@ -50,6 +57,53 @@ def is_traveling(user: User, now: datetime | None = None) -> bool:
         return False
     n = now or datetime.now(timezone.utc)
     return user.travel_until > n
+
+
+def is_travel_gps_confirmed(user: User, now: datetime | None = None) -> bool:
+    """True si la confirmation GPS date de < GPS_CONFIRMATION_VALID_HOURS."""
+    if user.travel_gps_confirmed_at is None:
+        return False
+    n = now or datetime.now(timezone.utc)
+    return (n - user.travel_gps_confirmed_at) < timedelta(
+        hours=GPS_CONFIRMATION_VALID_HOURS,
+    )
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Distance en km entre 2 points (formule haversine, R=6371 km)."""
+    import math
+    rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlng / 2) ** 2
+    )
+    c = 2 * math.asin(math.sqrt(a))
+    return 6371.0 * c
+
+
+async def try_confirm_travel(
+    user: User, lat: float, lng: float, db: AsyncSession
+) -> bool:
+    """Tentative de confirmation passive du voyage à partir d'un GPS.
+
+    Appelé depuis les endpoints qui reçoivent déjà du lat/lng (check-in
+    spot, scan flame). Idempotent et silencieux : si l'user n'est pas
+    en voyage ou est trop loin, no-op. Retourne True si la confirmation
+    a été posée/rafraîchie.
+    """
+    if not is_traveling(user) or user.travel_city_id is None:
+        return False
+    city = await db.get(City, user.travel_city_id)
+    if city is None or city.latitude is None or city.longitude is None:
+        return False
+    distance = _haversine_km(lat, lng, city.latitude, city.longitude)
+    if distance > GPS_CONFIRMATION_RADIUS_KM:
+        return False
+    user.travel_gps_confirmed_at = datetime.now(timezone.utc)
+    await db.commit()
+    return True
 
 
 def effective_city_id(user: User, now: datetime | None = None) -> UUID | None:
@@ -92,6 +146,7 @@ async def get_status(
         travel_started_at=user.travel_started_at if active else None,
         travel_until=user.travel_until if active else None,
         extension_used=bool(user.travel_extension_used),
+        gps_confirmed=is_travel_gps_confirmed(user, now) if active else False,
         can_extend=can_extend,
         activations_remaining=remaining,
         can_activate=can_activate,
@@ -137,6 +192,7 @@ async def activate(
     user.travel_started_at = now
     user.travel_until = now + _duration_to_delta(duration)
     user.travel_extension_used = False
+    user.travel_gps_confirmed_at = None
     user.travel_activations_count_30d = (
         user.travel_activations_count_30d or 0
     ) + 1
@@ -187,6 +243,7 @@ async def deactivate(
     user.travel_started_at = None
     user.travel_until = None
     user.travel_extension_used = False
+    user.travel_gps_confirmed_at = None
     await db.commit()
     await db.refresh(user)
     return await get_status(user, db, lang)
@@ -212,6 +269,7 @@ async def expire_due_travels(db: AsyncSession) -> int:
         u.travel_started_at = None
         u.travel_until = None
         u.travel_extension_used = False
+        u.travel_gps_confirmed_at = None
     if users:
         await db.commit()
     return len(users)

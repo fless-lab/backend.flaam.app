@@ -116,6 +116,12 @@ class User(Base, UUIDMixin, TimestampMixin):
     travel_extension_used: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False,
     )
+    # Confirmation GPS passive : set quand on détecte la position de
+    # l'user dans un rayon de 30km du centre de travel_city. Reset à
+    # la désactivation. Le badge mobile affiche "Confirmé" si < 24h.
+    travel_gps_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # ── Cooldown changement ville principale (1×/30j) ───────────
     city_changed_at: Mapped[datetime | None] = mapped_column(

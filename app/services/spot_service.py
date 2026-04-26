@@ -290,6 +290,12 @@ async def check_in(
     await db.commit()
     await db.refresh(us)
 
+    # Side-effect : si l'user est en mode voyage, profite des coords
+    # GPS du check-in pour confirmer sa présence dans la ville de
+    # destination (no-op silencieux si trop loin / pas en voyage).
+    from app.services import travel_service as _travel
+    await _travel.try_confirm_travel(user, latitude, longitude, db)
+
     log.info(
         "spot_checkin",
         user_id=str(user.id),

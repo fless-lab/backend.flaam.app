@@ -133,6 +133,10 @@ class OtherProfileResponse(BaseModel):
     is_traveling: bool = False
     travel_city_name: str | None = None
     travel_until: datetime | None = None
+    # `travel_confirmed` : preuve passive de présence dans la ville de
+    # destination (GPS validé < 24h via check-in spot ou scan flame).
+    # UI affiche "· Confirmé" en accent succès quand true.
+    travel_confirmed: bool = False
 
 
 class CompletenessBreakdown(BaseModel):
