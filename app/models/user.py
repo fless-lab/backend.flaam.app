@@ -85,6 +85,42 @@ class User(Base, UUIDMixin, TimestampMixin):
     city_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("cities.id"), nullable=True
     )
+
+    # ── Mode voyage ─────────────────────────────────────────────
+    # Voyage = TEMPORAIRE. La ville principale (city_id) ne change pas.
+    # Règles produit :
+    #   - durées proposées : 3, 7, 14, 30 jours (default 7)
+    #   - max 2 activations sur les 30 derniers jours
+    #   - prolongation +7 jours, 1× par session
+    #   - au-delà → l'user doit changer sa ville principale
+    travel_city_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("cities.id", name="fk_users_travel_city_id"),
+        nullable=True,
+    )
+    travel_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    travel_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Compteur d'activations sur fenêtre glissante 30j. Reset quand
+    # window_start est plus vieux que 30 jours.
+    travel_activations_count_30d: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False,
+    )
+    travel_window_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Prolongation +7j (1× par session, reset à la désactivation).
+    travel_extension_used: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False,
+    )
+
+    # ── Cooldown changement ville principale (1×/30j) ───────────
+    city_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     onboarding_step: Mapped[str] = mapped_column(
         String(30),
         default="city_selection",
@@ -146,7 +182,10 @@ class User(Base, UUIDMixin, TimestampMixin):
     # Après conversion, c'est Profile.display_name qui fait foi.
     first_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    city = relationship("City", lazy="selectin")
+    city = relationship("City", lazy="selectin", foreign_keys=[city_id])
+    travel_city = relationship(
+        "City", lazy="selectin", foreign_keys=[travel_city_id]
+    )
     profile = relationship(
         "Profile", back_populates="user", uselist=False, lazy="selectin"
     )

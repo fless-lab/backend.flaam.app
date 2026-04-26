@@ -122,6 +122,14 @@ beat_schedule = {
         "schedule": 300.0,  # toutes les 5 min (fenêtre 25..35)
     },
 
+    # ── Travel mode ───────────────────────────────────────────────────
+    # Désactive les voyages dont travel_until est passé. Pose le cooldown
+    # 7j sur la même transaction.
+    "expire-travel-modes": {
+        "task": "app.tasks.travel_tasks.expire_travel_modes",
+        "schedule": 3600.0,  # toutes les heures
+    },
+
     # ── Analytics ─────────────────────────────────────────────────────
     "compute-daily-kpis": {
         "task": "app.tasks.analytics_tasks.compute_daily_kpis",

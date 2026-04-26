@@ -389,6 +389,39 @@ MESSAGES: dict[str, dict[str, str]] = {
         "fr": "Signalement introuvable.",
         "en": "Report not found.",
     },
+    # ── Mode voyage ──
+    "travel_already_active": {
+        "fr": "Un voyage est déjà actif. Désactive-le d'abord.",
+        "en": "A travel mode is already active. Disable it first.",
+    },
+    "travel_max_activations": {
+        "fr": "Tu as atteint la limite de 2 voyages sur 30 jours. Tu pourras réactiver le mode voyage le {next_date}.",
+        "en": "You reached the limit of 2 travels per 30 days. You can re-enable travel mode on {next_date}.",
+    },
+    "travel_invalid_city": {
+        "fr": "Ville de destination introuvable.",
+        "en": "Destination city not found.",
+    },
+    "travel_same_city": {
+        "fr": "Cette ville est déjà ta ville principale.",
+        "en": "This city is already your home city.",
+    },
+    "travel_not_active": {
+        "fr": "Aucun voyage actif.",
+        "en": "No active travel.",
+    },
+    "travel_extension_used": {
+        "fr": "La prolongation a déjà été utilisée pour ce voyage. Pour rester plus longtemps, change ta ville principale.",
+        "en": "Extension already used for this trip. To stay longer, change your home city.",
+    },
+    "travel_max_duration_reached": {
+        "fr": "Le mode voyage est limité à 30 jours. Pour rester plus longtemps, change ta ville principale.",
+        "en": "Travel mode is capped at 30 days. To stay longer, change your home city.",
+    },
+    "city_change_cooldown": {
+        "fr": "Tu pourras changer de ville principale le {next_date}.",
+        "en": "You can change your home city on {next_date}.",
+    },
 }
 
 

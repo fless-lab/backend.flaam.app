@@ -21,6 +21,7 @@ from app.api.v1.quartiers import router as quartiers_router
 from app.api.v1.safety import router as safety_router
 from app.api.v1.spots import router as spots_router
 from app.api.v1.subscriptions import router as subscriptions_router
+from app.api.v1.travel import router as travel_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -38,6 +39,7 @@ api_router.include_router(events_router)
 api_router.include_router(notifications_router)
 api_router.include_router(subscriptions_router)
 api_router.include_router(safety_router)
+api_router.include_router(travel_router)
 api_router.include_router(contacts_router)
 api_router.include_router(behavior_router)
 api_router.include_router(config_router)

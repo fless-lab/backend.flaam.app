@@ -16,7 +16,7 @@ Aucun side effect.
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, exists, not_, select
+from sqlalchemy import and_, exists, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import (
@@ -88,6 +88,10 @@ async def apply_hard_filters(
     profile = user.profile
     if profile is None or user.city_id is None:
         return []
+    # Mode voyage : si l'user est en visite, on cherche dans la ville
+    # de destination. Sinon ville principale.
+    from app.services import travel_service  # local import (cycle-safe)
+    ref_city_id = travel_service.effective_city_id(user) or user.city_id
 
     now = datetime.now(timezone.utc)
     today = now.date()
@@ -108,7 +112,16 @@ async def apply_hard_filters(
         .join(Profile, Profile.user_id == User.id)
         .where(
             and_(
-                User.city_id == user.city_id,
+                # Candidat dans la ville de réf (soit comme ville principale,
+                # soit en mode voyage actif vers cette ville).
+                or_(
+                    User.city_id == ref_city_id,
+                    and_(
+                        User.travel_city_id == ref_city_id,
+                        User.travel_until.isnot(None),
+                        User.travel_until > now,
+                    ),
+                ),
                 User.id != user.id,
                 User.is_active.is_(True),
                 User.is_visible.is_(True),

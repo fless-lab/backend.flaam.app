@@ -128,6 +128,11 @@ class OtherProfileResponse(BaseModel):
     languages: list[str]
     photos: list[PhotoResponse]
     is_selfie_verified: bool
+    # Badge "En visite" : true si l'user vu est en mode voyage actif.
+    # Permet au mobile d'afficher "À Lomé jusqu'au 5 mai" pour transparence.
+    is_traveling: bool = False
+    travel_city_name: str | None = None
+    travel_until: datetime | None = None
 
 
 class CompletenessBreakdown(BaseModel):

@@ -120,7 +120,24 @@ def _profile_to_public_dict(user: User, profile: Profile) -> dict[str, Any]:
             if not p.is_verified_selfie and p.moderation_status != "rejected"
         ],
         "is_selfie_verified": user.is_selfie_verified,
+        # Mode voyage — exposé aux autres pour transparence ("En visite").
+        "is_traveling": _is_user_traveling(user),
+        "travel_city_name": (
+            user.travel_city.name
+            if _is_user_traveling(user) and user.travel_city is not None
+            else None
+        ),
+        "travel_until": (
+            user.travel_until if _is_user_traveling(user) else None
+        ),
     }
+
+
+def _is_user_traveling(user: User) -> bool:
+    from datetime import datetime, timezone
+    if user.travel_city_id is None or user.travel_until is None:
+        return False
+    return user.travel_until > datetime.now(timezone.utc)
 
 
 # ── Read ─────────────────────────────────────────────────────────────
@@ -176,14 +193,21 @@ async def update_profile(
     data = {k: v for k, v in body.items() if v is not None}
 
     # ── city_id → User (pas Profile) ──
+    # Acceptable uniquement à l'onboarding (city_id None). Si l'user
+    # essaie de la changer après coup, on délègue à travel_service qui
+    # applique le cooldown 30 jours et stamp city_changed_at.
     city_id = data.pop("city_id", None)
     if city_id is not None:
-        city = await db.get(City, city_id)
-        if not city:
-            raise FlaamError("city_not_found", 404, lang)
-        if city.phase not in ("launch", "growth", "stable"):
-            raise FlaamError("city_not_available", 400, lang)
-        user.city_id = city_id
+        if user.city_id is not None and user.city_id != city_id:
+            from app.services import travel_service as _ts
+            await _ts.change_home_city(user, city_id, db, lang)
+        elif user.city_id is None:
+            city = await db.get(City, city_id)
+            if not city:
+                raise FlaamError("city_not_found", 404, lang)
+            if city.phase not in ("launch", "growth", "stable"):
+                raise FlaamError("city_not_available", 400, lang)
+            user.city_id = city_id
 
     # ── feed_search_mode → User (pas Profile) ──
     feed_search_mode = data.pop("feed_search_mode", None)
@@ -265,14 +289,21 @@ async def patch_profile(
     data = {k: v for k, v in body.items() if v is not None}
 
     # ── city_id → User (pas Profile) ──
+    # Acceptable uniquement à l'onboarding (city_id None). Si l'user
+    # essaie de la changer après coup, on délègue à travel_service qui
+    # applique le cooldown 30 jours et stamp city_changed_at.
     city_id = data.pop("city_id", None)
     if city_id is not None:
-        city = await db.get(City, city_id)
-        if not city:
-            raise FlaamError("city_not_found", 404, lang)
-        if city.phase not in ("launch", "growth", "stable"):
-            raise FlaamError("city_not_available", 400, lang)
-        user.city_id = city_id
+        if user.city_id is not None and user.city_id != city_id:
+            from app.services import travel_service as _ts
+            await _ts.change_home_city(user, city_id, db, lang)
+        elif user.city_id is None:
+            city = await db.get(City, city_id)
+            if not city:
+                raise FlaamError("city_not_found", 404, lang)
+            if city.phase not in ("launch", "growth", "stable"):
+                raise FlaamError("city_not_available", 400, lang)
+            user.city_id = city_id
 
     # ── feed_search_mode → User (pas Profile) ──
     feed_search_mode = data.pop("feed_search_mode", None)
