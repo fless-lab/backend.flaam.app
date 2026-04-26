@@ -144,6 +144,55 @@ def _relation_weight(relation_type: str, config: dict[str, float]) -> float:
     return config.get(key, 0.5)
 
 
+def _quartier_score_unified(
+    user_physical: dict[UUID, str],
+    user_interested: dict[UUID, str],
+    candidate_physical: dict[UUID, str],
+    candidate_interested: dict[UUID, str],
+    config: dict[str, float],
+) -> float:
+    """
+    Score quartier simplifié pour la beta.
+
+    Approche :
+      1. Set unifié de tous les quartiers déclarés par chaque user
+         (lives + works + hangs + interested mélangés)
+      2. Jaccard sur le set unifié = base
+      3. Bonus signal fort si overlap sur lives ou works
+         (signaux qui matchent vraiment la vie réelle, pas juste une
+         préférence)
+
+    Pourquoi : avec un pool faible (beta Lomé ~50 users), granulariser
+    à 4 relations dilue le signal. Un user qui déclare beaucoup de
+    quartiers ne doit pas être pénalisé (Jaccard pur ferait baisser
+    le score). Le bonus garde le signal fort sans complexité de poids.
+
+    Activable via env `geo_unified_set_enabled = 1.0`.
+    """
+    user_set = set(user_physical.keys()) | set(user_interested.keys())
+    cand_set = set(candidate_physical.keys()) | set(candidate_interested.keys())
+
+    if not user_set or not cand_set:
+        return 0.0
+
+    inter = user_set & cand_set
+    union = user_set | cand_set
+    base = len(inter) / len(union) if union else 0.0
+
+    bonus = 0.0
+    user_lives = {q for q, r in user_physical.items() if r == "lives"}
+    cand_lives = {q for q, r in candidate_physical.items() if r == "lives"}
+    if user_lives & cand_lives:
+        bonus += config.get("geo_unified_bonus_lives", 0.30)
+
+    user_works = {q for q, r in user_physical.items() if r == "works"}
+    cand_works = {q for q, r in candidate_physical.items() if r == "works"}
+    if user_works & cand_works:
+        bonus += config.get("geo_unified_bonus_works", 0.20)
+
+    return min(1.0, base + bonus)
+
+
 def _quartier_score_with_proximity(
     user_physical: dict[UUID, str],
     user_interested: dict[UUID, str],
@@ -152,6 +201,7 @@ def _quartier_score_with_proximity(
 ) -> float:
     """
     Score quartier normalisé 0-1. Voir spec §6.3 pour les 3 passes.
+    Algo legacy — gardé en fallback (geo_unified_set_enabled = 0.0).
     """
     if not candidate_physical:
         return 0.0
@@ -328,15 +378,25 @@ async def compute_geo_scores(
     w_fr = config.get("geo_w_freshness", 0.10)
     halflife = config.get("freshness_decay_halflife_days", 30.0)
 
+    use_unified = config.get("geo_unified_set_enabled", 1.0) >= 0.5
+
     scores: dict[UUID, float] = {}
     for cid in candidate_ids:
         cq = cand_quartiers.get(cid, {})
         cq_physical = {qid: rt for qid, rt in cq.items() if rt != "interested"}
+        cq_interested = {qid: rt for qid, rt in cq.items() if rt == "interested"}
         cs = cand_spots.get(cid, {})
 
-        q_score = _quartier_score_with_proximity(
-            user_physical, user_interested, cq_physical, config
-        )
+        if use_unified:
+            q_score = _quartier_score_unified(
+                user_physical, user_interested,
+                cq_physical, cq_interested,
+                config,
+            )
+        else:
+            q_score = _quartier_score_with_proximity(
+                user_physical, user_interested, cq_physical, config
+            )
         s_score = _spot_overlap(user_spots, cs)
         f_score = _fidelity_bonus(user_spots, cs)
         fr_score = _freshness_score(user_spots, cs, halflife)

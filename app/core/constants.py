@@ -21,13 +21,21 @@ Deux familles de constantes :
 
 MATCHING_DEFAULTS: dict[str, float] = {
     # ── L2 géo ──
-    # Poids des relations utilisateur↔quartier (L2 passe 1/2)
+    # Poids des relations utilisateur↔quartier (L2 passe 1/2 — algo legacy)
     "geo_w_quartier_lives": 2.0,
     "geo_w_quartier_works": 1.5,
     "geo_w_quartier_hangs": 1.0,
     "geo_w_quartier_interested": 0.8,
     # Seuil sous lequel on ignore la proximité (bruit des quartiers éloignés)
     "geo_proximity_threshold": 0.40,
+    # ── Algo géo simplifié (beta) ──
+    # 1.0 = nouveau (Jaccard set unifié + bonus signal fort lives/works)
+    # 0.0 = legacy (4 passes pondérées par relation_type)
+    # Cf. project_feed_active_boost_design + roadmap-irl-loop. Active en
+    # beta car pool de données trop fin pour granulariser à 4 relations.
+    "geo_unified_set_enabled": 1.0,
+    "geo_unified_bonus_lives": 0.30,
+    "geo_unified_bonus_works": 0.20,
     # Poids des composantes agrégées du score géo
     "geo_w_quartier": 0.45,
     "geo_w_spot": 0.30,
