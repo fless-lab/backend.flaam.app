@@ -26,6 +26,21 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_visible: Mapped[bool] = mapped_column(Boolean, default=True)
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Mode de recherche géo (§search-area).
+    # - "whole_city" (default) : l'user est ouvert à toute la ville. Le
+    #   geo_scorer renvoie un score neutre (0.5) pour cet user — il n'est
+    #   ni avantagé ni pénalisé par la géo. Bonus lives/works restent
+    #   actifs si l'user a déclaré ces relations par ailleurs.
+    # - "specific_quartiers" : l'user a coché des quartiers ciblés (stockés
+    #   en UserQuartier relation_type='interested'). Le score géo passe
+    #   au calcul Jaccard normal.
+    feed_search_mode: Mapped[str] = mapped_column(
+        String(30),
+        default="whole_city",
+        server_default="whole_city",
+        nullable=False,
+    )
     ban_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Insta-match QR — toggle sécurité (default true). Si false, les

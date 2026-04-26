@@ -82,6 +82,7 @@ def _profile_to_my_dict(user: User, profile: Profile) -> dict[str, Any]:
         "is_id_verified": user.is_id_verified,
         "is_visible": user.is_visible,
         "city_id": user.city_id,
+        "feed_search_mode": user.feed_search_mode,
         "onboarding_step": user.onboarding_step,
         "updated_at": profile.updated_at,
     }
@@ -184,6 +185,11 @@ async def update_profile(
             raise FlaamError("city_not_available", 400, lang)
         user.city_id = city_id
 
+    # ── feed_search_mode → User (pas Profile) ──
+    feed_search_mode = data.pop("feed_search_mode", None)
+    if feed_search_mode is not None:
+        user.feed_search_mode = feed_search_mode
+
     # Validation range seeking_age si les deux sont fournis
     min_age = data.get("seeking_age_min")
     max_age = data.get("seeking_age_max")
@@ -241,6 +247,7 @@ async def update_profile(
     # On retourne un dict minimal — la route utilisera response_model=None.
     return {
         "city_id": str(user.city_id) if user.city_id else None,
+        "feed_search_mode": user.feed_search_mode,
         "onboarding_step": user.onboarding_step,
     }
 
@@ -267,6 +274,11 @@ async def patch_profile(
             raise FlaamError("city_not_available", 400, lang)
         user.city_id = city_id
 
+    # ── feed_search_mode → User (pas Profile) ──
+    feed_search_mode = data.pop("feed_search_mode", None)
+    if feed_search_mode is not None:
+        user.feed_search_mode = feed_search_mode
+
     # Validation range seeking_age
     min_age = data.get("seeking_age_min")
     max_age = data.get("seeking_age_max")
@@ -286,11 +298,12 @@ async def patch_profile(
     profile = user.profile
     if profile is None:
         if not data:
-            # PATCH avec seulement city_id (pas de champs Profile) →
-            # rien à créer, on persiste juste l'update User.city_id.
+            # PATCH avec seulement city_id/feed_search_mode (pas de champs
+            # Profile) → rien à créer, on persiste juste l'update User.
             await db.commit()
             return {
                 "city_id": str(user.city_id) if user.city_id else None,
+                "feed_search_mode": user.feed_search_mode,
                 "onboarding_step": user.onboarding_step,
             }
         # Création seulement si on a tous les champs Profile NOT NULL.

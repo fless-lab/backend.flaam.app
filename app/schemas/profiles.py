@@ -65,6 +65,9 @@ class UpdateProfileBody(BaseModel):
 
     city_id: UUID | None = None
 
+    # Mode de recherche géo (cf. User.feed_search_mode).
+    feed_search_mode: Literal["whole_city", "specific_quartiers"] | None = None
+
     @field_validator("birth_date")
     @classmethod
     def _check_age(cls, v: date | None) -> date | None:

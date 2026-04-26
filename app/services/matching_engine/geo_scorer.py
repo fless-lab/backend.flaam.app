@@ -372,6 +372,19 @@ async def compute_geo_scores(
     cand_quartiers = await _load_candidates_quartiers(candidate_ids, db_session)
     cand_spots = await _load_candidates_spots(candidate_ids, db_session)
 
+    # feed_search_mode des candidats — pour score géo neutre 0.5 quand
+    # un user (viewer ou candidat) est en mode "toute la ville".
+    from app.models.user import User as _User
+    mode_rows = await db_session.execute(
+        select(_User.id, _User.feed_search_mode).where(
+            _User.id.in_(candidate_ids),
+        ),
+    )
+    cand_search_mode: dict[UUID, str] = {
+        row[0]: row[1] for row in mode_rows.all()
+    }
+    user_mode = getattr(user, "feed_search_mode", "whole_city") or "whole_city"
+
     w_q = config.get("geo_w_quartier", 0.45)
     w_s = config.get("geo_w_spot", 0.30)
     w_f = config.get("geo_w_fidelity", 0.15)
@@ -386,8 +399,24 @@ async def compute_geo_scores(
         cq_physical = {qid: rt for qid, rt in cq.items() if rt != "interested"}
         cq_interested = {qid: rt for qid, rt in cq.items() if rt == "interested"}
         cs = cand_spots.get(cid, {})
+        cand_mode = cand_search_mode.get(cid, "whole_city")
 
-        if use_unified:
+        # Score géo neutre 0.5 si l'un des deux est en "whole_city" :
+        # l'user signale "la géo ne classe pas pour moi". Bonus lives/works
+        # restent actifs (ce sont des facts, pas des préférences).
+        if user_mode == "whole_city" or cand_mode == "whole_city":
+            base = 0.5
+            bonus = 0.0
+            user_lives = {qid for qid, rt in user_physical.items() if rt == "lives"}
+            cand_lives = {qid for qid, rt in cq_physical.items() if rt == "lives"}
+            if user_lives & cand_lives:
+                bonus += config.get("geo_unified_bonus_lives", 0.30)
+            user_works = {qid for qid, rt in user_physical.items() if rt == "works"}
+            cand_works = {qid for qid, rt in cq_physical.items() if rt == "works"}
+            if user_works & cand_works:
+                bonus += config.get("geo_unified_bonus_works", 0.20)
+            q_score = min(1.0, base + bonus)
+        elif use_unified:
             q_score = _quartier_score_unified(
                 user_physical, user_interested,
                 cq_physical, cq_interested,
