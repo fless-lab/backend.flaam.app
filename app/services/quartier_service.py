@@ -79,7 +79,11 @@ async def add_quartier_to_profile(
             status.HTTP_400_BAD_REQUEST, "quartier_not_in_city"
         )
 
-    # Doublon ?
+    # Doublon : on est idempotent. Si la paire (user, quartier, relation)
+    # existe déjà, on renvoie la row existante (avec mise à jour
+    # éventuelle de is_primary) au lieu de 400. Ça évite que le mobile
+    # ait à faire la diff parfaite avant chaque save — il peut juste
+    # POSTer la liste désirée.
     existing_same = await db.execute(
         select(UserQuartier).where(
             UserQuartier.user_id == user.id,
@@ -87,11 +91,16 @@ async def add_quartier_to_profile(
             UserQuartier.relation_type == relation_type,
         )
     )
-    if existing_same.scalar_one_or_none() is not None:
-        raise AppException(
-            status.HTTP_400_BAD_REQUEST,
-            f"duplicate_quartier_relation:{relation_type}",
-        )
+    existing_uq = existing_same.scalar_one_or_none()
+    if existing_uq is not None:
+        if is_primary and relation_type == "lives":
+            for uq in (user.user_quartiers or []):
+                if uq.relation_type == "lives" and uq.is_primary:
+                    uq.is_primary = False
+            existing_uq.is_primary = True
+            await db.commit()
+            await db.refresh(existing_uq)
+        return existing_uq
 
     # Compter les existants du même type
     existing_of_type = await db.execute(
