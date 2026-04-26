@@ -70,6 +70,13 @@ class EmergencySession(Base, UUIDMixin, TimestampMixin):
     )
 
     hours: Mapped[float] = mapped_column(Float, nullable=False)
+    # Datetime à laquelle le timer doit DÉMARRER. Null = démarrage
+    # immédiat (= comportement legacy : started_at == created_at).
+    # Si set, le timer est en status="scheduled" jusqu'à ce que la
+    # Celery task `activate_scheduled_timers` le bascule en "active".
+    scheduled_for: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
