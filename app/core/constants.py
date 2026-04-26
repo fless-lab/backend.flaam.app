@@ -207,7 +207,11 @@ NEW_USER_BOOST_BUCKETS: list[tuple[int, int, str]] = [
 MATCHING_FEED_LIMIT_ENABLED: bool = False  # False = pas de limite de taille
 MATCHING_FEED_SIZE: int = 12  # utilisé seulement si LIMIT_ENABLED = True
 MATCHING_FEED_MIN_SIZE: int = 8
-MATCHING_FEED_MIN_SCORE: float = 15.0  # score total minimum pour apparaître
+MATCHING_FEED_MIN_SCORE: float = 0.15  # score min sur échelle [0, 1]
+# Bug historique (commit 9ac73fef) : valeur 15.0 alors que scores sont
+# en [0, 1] → 100% des candidats étaient filtrés. Symptôme : tout user
+# voit "no more profiles today" peu importe la pool. Confirmé par
+# trace Linda (1 candidat hard filter, 0 dans feed final).
 # Le pool naturellement décroissant en beta (peu de users) impose un
 # cooldown court : un skip aujourd'hui ne doit pas exclure le profil
 # pendant un mois. 10j est un bon compromis ("j'ai changé d'avis" reste
