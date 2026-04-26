@@ -494,6 +494,7 @@ async def start_emergency_timer(
     lang: str = "fr",
     match_id: UUID | None = None,
     partner_user_id: UUID | None = None,
+    scheduled_for: datetime | None = None,
 ) -> tuple[datetime, UUID]:
     """
     Arme le timer d'urgence — écrit une row EmergencySession en BD
@@ -509,13 +510,22 @@ async def start_emergency_timer(
     """
     _validate_hours(hours, lang)
 
-    # SAFETY-6 : un seul timer actif à la fois. Si une clé existe encore en
-    # Redis (non expirée), refuse — l'utilisateur doit annuler d'abord. Ça
-    # évite les "sessions orphelines" en DB (une nouvelle écrase la clé
-    # Redis sans fermer la row emergency_sessions précédente).
-    existing = await redis.get(TIMER_KEY.format(user_id=str(user.id)))
-    if existing is not None:
-        raise FlaamError("timer_already_active", 409, lang)
+    # Validation scheduled_for (si fourni) : doit être dans le futur.
+    if scheduled_for is not None:
+        now_check = datetime.now(timezone.utc)
+        if scheduled_for <= now_check:
+            raise FlaamError("scheduled_for_must_be_future", 400, lang)
+        # Garde-fou raisonnable : pas plus de 14 jours dans le futur.
+        if (scheduled_for - now_check).days > 14:
+            raise FlaamError("scheduled_for_too_far", 400, lang)
+
+    # SAFETY-6 : un seul timer ACTIVE à la fois (la clé Redis ne couvre
+    # que les actifs). Pour les scheduled, on autorise plusieurs en
+    # parallèle (ex: 2 RDV différents prévus).
+    if scheduled_for is None:
+        existing = await redis.get(TIMER_KEY.format(user_id=str(user.id)))
+        if existing is not None:
+            raise FlaamError("timer_already_active", 409, lang)
 
     contacts = await _resolve_contacts(
         user=user,
@@ -544,6 +554,18 @@ async def start_emergency_timer(
     )
 
     # ── DB row FIRST (source de vérité) ──
+    # Si scheduled_for set : started_at = scheduled_for (futur),
+    # expires_at = scheduled_for + duration. La row est inactive jusqu'à
+    # ce que la Celery task `activate_scheduled_timers` la bascule.
+    if scheduled_for is not None:
+        sched_started_at = scheduled_for
+        sched_expires_at = datetime.fromtimestamp(
+            scheduled_for.timestamp() + timer_seconds, tz=timezone.utc,
+        )
+    else:
+        sched_started_at = now
+        sched_expires_at = expires_at_utc
+
     session = EmergencySession(
         user_id=user.id,
         partner_user_id=resolved_partner_id,
@@ -553,12 +575,27 @@ async def start_emergency_timer(
         longitude=longitude,
         contacts_snapshot=contacts,
         hours=hours,
-        started_at=now,
-        expires_at=expires_at_utc,
+        started_at=sched_started_at,
+        expires_at=sched_expires_at,
+        scheduled_for=scheduled_for,
     )
     db.add(session)
     await db.commit()
     await db.refresh(session)
+
+    # Si scheduled : on n'arme PAS Redis. La Celery activate task le
+    # fera quand scheduled_for <= now. On retourne juste la session.
+    if scheduled_for is not None:
+        log.info(
+            "emergency_timer_scheduled",
+            user_id=str(user.id),
+            session_id=str(session.id),
+            scheduled_for=scheduled_for.isoformat(),
+            hours=hours,
+            contacts_count=len(contacts),
+            match_id=str(match_id) if match_id else None,
+        )
+        return sched_expires_at, session.id
 
     # ── Redis payload (cache pour Celery) ──
     payload = {
@@ -595,6 +632,58 @@ async def start_emergency_timer(
         match_id=str(match_id) if match_id else None,
     )
     return expires_at_utc, session.id
+
+
+async def list_scheduled_timers(
+    *, user: User, db: AsyncSession,
+) -> list[EmergencySession]:
+    """Liste les timers scheduled (pas encore activés, pas annulés)."""
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(EmergencySession)
+        .where(
+            EmergencySession.user_id == user.id,
+            EmergencySession.scheduled_for.isnot(None),
+            EmergencySession.scheduled_for > now,
+            EmergencySession.ended_at.is_(None),
+        )
+        .order_by(EmergencySession.scheduled_for.asc()),
+    )
+    return list(result.scalars().all())
+
+
+async def cancel_scheduled_timer(
+    *,
+    user: User,
+    session_id: UUID,
+    db: AsyncSession,
+    lang: str = "fr",
+) -> None:
+    """Annule un timer scheduled (avant son activation)."""
+    result = await db.execute(
+        select(EmergencySession).where(
+            EmergencySession.id == session_id,
+            EmergencySession.user_id == user.id,
+        ),
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise FlaamError("scheduled_timer_not_found", 404, lang)
+    if session.scheduled_for is None or session.ended_at is not None:
+        raise FlaamError("scheduled_timer_already_processed", 400, lang)
+    now = datetime.now(timezone.utc)
+    if session.scheduled_for <= now:
+        # Déjà activé entre temps — on laisse le flux normal d'annulation
+        # gérer (cancel_emergency_timer hits Redis).
+        raise FlaamError("scheduled_timer_already_active", 409, lang)
+    session.ended_at = now
+    session.end_reason = "cancelled_scheduled"
+    await db.commit()
+    log.info(
+        "emergency_timer_scheduled_cancelled",
+        user_id=str(user.id),
+        session_id=str(session_id),
+    )
 
 
 async def _find_active_session(
