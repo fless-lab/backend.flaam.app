@@ -25,6 +25,11 @@ class FeedSpotInCommon(BaseModel):
     category: str
     their_fidelity: str
     your_fidelity: str
+    # Coords optionnelles : utilisées par MeetupSheet (carte mobile) pour
+    # afficher les spots en commun comme markers. Tolère le legacy où ces
+    # champs n'étaient pas renseignés.
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class FeedPromptEntry(BaseModel):

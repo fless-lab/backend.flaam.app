@@ -266,6 +266,9 @@ def _spots_in_common(me: User, other: User) -> list[dict]:
                 "category": spot.category,
                 "their_fidelity": their.fidelity_level,
                 "your_fidelity": mine.fidelity_level,
+                # Coords pour pin sur carte (MeetupSheet mobile).
+                "latitude": spot.latitude,
+                "longitude": spot.longitude,
             }
         )
     return out
