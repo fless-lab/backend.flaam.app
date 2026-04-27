@@ -125,6 +125,22 @@ async def test_delete_account_soft_delete(client, redis_client, db_session):
     access = tokens["access_token"]
     refresh = tokens["refresh_token"]
 
+    # Gate #214 : email vérifié requis pour delete account.
+    # On marque l'user directement en DB pour bypasser le flow magic link.
+    from app.models.user import User
+    from app.utils.phone import hash_phone as _hp
+    from sqlalchemy import select as _sel
+    from datetime import datetime, timezone
+
+    res = await db_session.execute(
+        _sel(User).where(User.phone_hash == _hp("+22890000002"))
+    )
+    user = res.scalar_one()
+    user.email = "test@example.com"
+    user.is_email_verified = True
+    user.email_verified_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
     # 2. Supprimer le compte (httpx.AsyncClient.delete n'accepte pas json= →
     # on passe par request())
     resp = await client.request(
@@ -162,3 +178,249 @@ async def test_delete_account_soft_delete(client, redis_client, db_session):
     # 5. Refresh token révoqué
     refresh_resp = await client.post("/auth/refresh", json={"refresh_token": refresh})
     assert refresh_resp.status_code == 401
+
+
+# ─────────────────────────────────────────────────────────────────────
+# MFA PIN — anti-bruteforce lockout helper (#220, #211)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_compute_pin_lock_below_tier_1_returns_none():
+    from app.core.security import compute_pin_lock_until
+
+    assert compute_pin_lock_until(0) is None
+    assert compute_pin_lock_until(4) is None
+
+
+def test_compute_pin_lock_tier_1_15_minutes():
+    from datetime import datetime, timedelta, timezone
+    from app.core.security import compute_pin_lock_until
+
+    now = datetime.now(timezone.utc)
+    locked = compute_pin_lock_until(5)
+    assert locked is not None
+    delta = (locked - now).total_seconds()
+    assert 14 * 60 <= delta <= 16 * 60  # ~15 min ± 1 min jitter
+
+
+def test_compute_pin_lock_tier_1_continues_through_9():
+    from datetime import datetime, timezone
+    from app.core.security import compute_pin_lock_until
+
+    now = datetime.now(timezone.utc)
+    locked = compute_pin_lock_until(9)
+    assert locked is not None
+    delta = (locked - now).total_seconds()
+    assert delta < 30 * 60  # encore tier 1 (15min), pas tier 2
+
+
+def test_compute_pin_lock_tier_2_60_minutes():
+    from datetime import datetime, timezone
+    from app.core.security import compute_pin_lock_until
+
+    now = datetime.now(timezone.utc)
+    locked = compute_pin_lock_until(10)
+    assert locked is not None
+    delta = (locked - now).total_seconds()
+    assert 59 * 60 <= delta <= 61 * 60  # ~1h ± 1 min
+
+
+def test_compute_pin_lock_tier_2_caps():
+    from datetime import datetime, timezone
+    from app.core.security import compute_pin_lock_until
+
+    # 50 échecs = toujours tier 2 (1h), pas plus
+    now = datetime.now(timezone.utc)
+    locked = compute_pin_lock_until(50)
+    assert locked is not None
+    delta = (locked - now).total_seconds()
+    assert 59 * 60 <= delta <= 61 * 60
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Gates contextuels (#220, #214)
+# ─────────────────────────────────────────────────────────────────────
+
+
+async def _create_test_user_with_mfa(
+    client, redis_client, phone: str, pin: str | None = None,
+    email_verified: bool = False,
+):
+    """Helper — crée un user, optionnellement avec MFA + email vérifié."""
+    from datetime import datetime, timezone
+    from app.models.user import User
+    from app.utils.phone import hash_phone as _hp
+    from sqlalchemy import select as _sel
+
+    await client.post("/auth/otp/request", json={"phone": phone})
+    code = await redis_client.get(_otp_key(phone))
+    verify = await client.post(
+        "/auth/otp/verify",
+        json={"phone": phone, "code": code, "device_fingerprint": "sha:test"},
+    )
+    tokens = verify.json()
+    return tokens["access_token"]
+
+
+async def test_gate_email_required_blocks_delete_account(client, redis_client, db_session):
+    """DELETE /auth/account sans email vérifié → 412 email_required."""
+    access = await _create_test_user_with_mfa(
+        client, redis_client, "+22890000010",
+    )
+    resp = await client.request(
+        "DELETE",
+        "/auth/account",
+        json={"confirm": True},
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert resp.status_code == 412, resp.text
+    assert "email_required" in resp.text
+
+
+async def test_gate_pin_required_blocks_when_mfa_enabled(client, redis_client, db_session):
+    """User avec PIN configuré + email OK → DELETE sans header X-Pin-Verification → 412 pin_required."""
+    from datetime import datetime, timezone
+    from app.models.user import User
+    from app.core.security import hash_pin
+    from app.utils.phone import hash_phone as _hp
+    from sqlalchemy import select as _sel
+
+    access = await _create_test_user_with_mfa(
+        client, redis_client, "+22890000011",
+    )
+    # Bypass : email vérifié + PIN configuré
+    res = await db_session.execute(
+        _sel(User).where(User.phone_hash == _hp("+22890000011"))
+    )
+    user = res.scalar_one()
+    user.email = "t11@example.com"
+    user.is_email_verified = True
+    user.email_verified_at = datetime.now(timezone.utc)
+    user.mfa_enabled = True
+    user.mfa_pin_hash = hash_pin("123456")
+    await db_session.commit()
+
+    resp = await client.request(
+        "DELETE",
+        "/auth/account",
+        json={"confirm": True},
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert resp.status_code == 412, resp.text
+    assert "pin_required" in resp.text
+
+
+async def test_gate_pin_invalid_returns_401_and_increments_counter(
+    client, redis_client, db_session,
+):
+    """PIN faux → 401 + mfa_failed_attempts incrémenté."""
+    from datetime import datetime, timezone
+    from app.models.user import User
+    from app.core.security import hash_pin
+    from app.utils.phone import hash_phone as _hp
+    from sqlalchemy import select as _sel
+
+    access = await _create_test_user_with_mfa(
+        client, redis_client, "+22890000012",
+    )
+    res = await db_session.execute(
+        _sel(User).where(User.phone_hash == _hp("+22890000012"))
+    )
+    user = res.scalar_one()
+    user.email = "t12@example.com"
+    user.is_email_verified = True
+    user.email_verified_at = datetime.now(timezone.utc)
+    user.mfa_enabled = True
+    user.mfa_pin_hash = hash_pin("123456")
+    await db_session.commit()
+
+    # PIN faux
+    resp = await client.request(
+        "DELETE",
+        "/auth/account",
+        json={"confirm": True},
+        headers={
+            "Authorization": f"Bearer {access}",
+            "X-Pin-Verification": "999999",
+        },
+    )
+    assert resp.status_code == 401, resp.text
+    assert "invalid_pin" in resp.text
+
+    # Counter incrémenté
+    await db_session.refresh(user)
+    assert user.mfa_failed_attempts == 1
+
+
+async def test_gate_pin_correct_passes_and_resets_counter(
+    client, redis_client, db_session,
+):
+    """PIN correct → 204 + counter reset à 0."""
+    from datetime import datetime, timezone
+    from app.models.user import User
+    from app.core.security import hash_pin
+    from app.utils.phone import hash_phone as _hp
+    from sqlalchemy import select as _sel
+
+    access = await _create_test_user_with_mfa(
+        client, redis_client, "+22890000013",
+    )
+    res = await db_session.execute(
+        _sel(User).where(User.phone_hash == _hp("+22890000013"))
+    )
+    user = res.scalar_one()
+    user.email = "t13@example.com"
+    user.is_email_verified = True
+    user.email_verified_at = datetime.now(timezone.utc)
+    user.mfa_enabled = True
+    user.mfa_pin_hash = hash_pin("123456")
+    user.mfa_failed_attempts = 3  # avait des échecs avant
+    await db_session.commit()
+
+    resp = await client.request(
+        "DELETE",
+        "/auth/account",
+        json={"confirm": True},
+        headers={
+            "Authorization": f"Bearer {access}",
+            "X-Pin-Verification": "123456",
+        },
+    )
+    assert resp.status_code == 204, resp.text
+
+
+async def test_gate_pin_locked_returns_429(client, redis_client, db_session):
+    """User en cooldown → 429 mfa_locked sans même tester le PIN."""
+    from datetime import datetime, timedelta, timezone
+    from app.models.user import User
+    from app.core.security import hash_pin
+    from app.utils.phone import hash_phone as _hp
+    from sqlalchemy import select as _sel
+
+    access = await _create_test_user_with_mfa(
+        client, redis_client, "+22890000014",
+    )
+    res = await db_session.execute(
+        _sel(User).where(User.phone_hash == _hp("+22890000014"))
+    )
+    user = res.scalar_one()
+    user.email = "t14@example.com"
+    user.is_email_verified = True
+    user.email_verified_at = datetime.now(timezone.utc)
+    user.mfa_enabled = True
+    user.mfa_pin_hash = hash_pin("123456")
+    user.mfa_failed_attempts = 5
+    user.mfa_locked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+    await db_session.commit()
+
+    resp = await client.request(
+        "DELETE",
+        "/auth/account",
+        json={"confirm": True},
+        headers={
+            "Authorization": f"Bearer {access}",
+            "X-Pin-Verification": "123456",  # même PIN correct → 429 d'abord
+        },
+    )
+    assert resp.status_code == 429, resp.text
+    assert "mfa_locked" in resp.text
