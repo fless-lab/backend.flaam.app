@@ -18,9 +18,20 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-# bcrypt uniquement pour le PIN MFA (6 chiffres). Le reste des hashes
-# (phone, email) sont en SHA-256 — pas d'info secrète à protéger.
-_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Hash PIN MFA — argon2id (OWASP-recommended 2024+, résistant GPU).
+#
+# Paramètres validés OWASP cheat sheet (équilibre sécu/perf) :
+#   memory_cost = 65536 KiB (64 MB)
+#   time_cost   = 3 itérations
+#   parallelism = 4 threads
+# Sur un t3.medium ce hash prend ~30ms — confortable pour un PIN
+# (vérifié 1× par session sensible, pas un endpoint hot-path).
+_pwd_ctx = CryptContext(
+    schemes=["argon2"],
+    argon2__memory_cost=65536,
+    argon2__time_cost=3,
+    argon2__parallelism=4,
+)
 
 
 # ── JWT ──────────────────────────────────────────────────────────────
@@ -62,7 +73,7 @@ def decode_token(token: str) -> dict:
     )
 
 
-# ── MFA PIN (bcrypt) ─────────────────────────────────────────────────
+# ── MFA PIN (argon2id) ───────────────────────────────────────────────
 
 def hash_pin(pin: str) -> str:
     if not re.fullmatch(r"\d{6}", pin):
