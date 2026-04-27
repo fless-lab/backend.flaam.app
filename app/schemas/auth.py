@@ -120,6 +120,18 @@ class MfaStatusResponse(BaseModel):
     failed_attempts: int = 0
 
 
+class EmailStatusResponse(BaseModel):
+    """État de l'email lié au compte (#212).
+
+    `email_masked` : "ra***@gmail.com" — jamais l'email complet, pour
+    éviter qu'un attaquant qui prend le tel récupère l'email cible.
+    """
+
+    linked: bool
+    verified: bool
+    email_masked: str | None = None
+
+
 # ── Changement de numéro ─────────────────────────────────────────────
 
 class PhoneChangeTokenResponse(BaseModel):
@@ -166,6 +178,7 @@ __all__ = [
     "MfaPinBody",
     "MfaChangeBody",
     "MfaStatusResponse",
+    "EmailStatusResponse",
     "PhoneChangeTokenResponse",
     "SetNewPhoneBody",
     "DeleteAccountBody",

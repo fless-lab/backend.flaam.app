@@ -45,6 +45,7 @@ from app.schemas.auth import (
     AddEmailBody,
     AuthTokenResponse,
     DeleteAccountBody,
+    EmailStatusResponse,
     MfaChangeBody,
     MfaPinBody,
     MfaStatusResponse,
@@ -216,6 +217,30 @@ async def delete_account(
 
 
 # ── Email (ajout + vérification) ─────────────────────────────────────
+
+
+def _mask_email(email: str | None) -> str | None:
+    """ra*** @gmail.com — masque tout sauf les 2 premiers chars du local."""
+    if not email or "@" not in email:
+        return None
+    local, _, domain = email.partition("@")
+    if len(local) <= 2:
+        head = local[0] if local else ""
+    else:
+        head = local[:2]
+    return f"{head}***@{domain}"
+
+
+@router.get("/email/status", response_model=EmailStatusResponse)
+async def email_status(
+    user: User = Depends(get_current_user),
+) -> EmailStatusResponse:
+    return EmailStatusResponse(
+        linked=bool(user.email),
+        verified=bool(user.is_email_verified),
+        email_masked=_mask_email(user.email),
+    )
+
 
 @router.post("/email/add", response_model=SimpleMessage)
 async def email_add(
