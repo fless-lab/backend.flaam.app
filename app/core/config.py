@@ -72,6 +72,22 @@ class Settings(BaseSettings):
     # "ratisseur".
     flame_scan_cooldown_seconds: int = 300
 
+    # ── R&D : quartiers géolocalisés (#199 epic) ──
+    # Feature flag global pour basculer du système actuel (table
+    # quartier_proximity figée + lat/lng centroïde) vers le système
+    # cible (PostGIS polygons + proximity dynamique calculée).
+    # OFF par défaut : Phase 1 ne fait QUE collecter la data en plus,
+    # sans changer l'algo. À passer ON quand Phase 2 est validée.
+    geolocated_quartiers_enabled: bool = False
+    # Hauteur du cache Redis pour la proximity dynamique (Phase 2).
+    # 7 jours : si on ajoute/édite un quartier, on invalide explicitement,
+    # sinon TTL passif.
+    geolocated_proximity_cache_ttl_seconds: int = 7 * 24 * 3600
+    # Fallback diameter (km) si city.diameter_km n'est pas calculé.
+    # Utilisé par compute_proximity pour normaliser la distance.
+    # Lomé tient dans ~15 km, on prend 20 km comme borne raisonnable.
+    geolocated_default_city_diameter_km: float = 20.0
+
     # Photo constraints (§3.7, §5.3)
     photo_max_size_bytes: int = 10 * 1024 * 1024  # 10 MB
     photo_min_count: int = 2  # minimum pour passer l'onboarding
