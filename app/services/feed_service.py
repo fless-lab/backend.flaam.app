@@ -325,6 +325,14 @@ def _hydrate_profile(
         "context_event_id": context_event.id if context_event else None,
         "context_event_name": context_event.title if context_event else None,
         "context_label": context_label,
+        # Travel mode : on s'appuie sur les colonnes denormalisées
+        # User.travel_city_id + travel_until. Voir #203.
+        "is_traveling": (
+            other.travel_city_id is not None
+            and other.travel_until is not None
+            and other.travel_until > datetime.now(timezone.utc)
+        ),
+        "travel_until": other.travel_until,
     }
 
 

@@ -74,6 +74,12 @@ class FeedProfileItem(BaseModel):
     context_event_name: str | None = None
     context_label: str | None = None
 
+    # Travel mode (S3) — true si l'user candidat est en mode voyage
+    # (présence temporaire dans la ville du reader). Le mobile peut
+    # afficher un tag "En voyage à X · jusqu'au Y" sur la card.
+    is_traveling: bool = False
+    travel_until: datetime | None = None
+
 
 class PostEventContext(BaseModel):
     """Indique au mobile que le feed a été boosté post-event."""
