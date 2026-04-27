@@ -40,6 +40,10 @@ class EventListItem(BaseModel):
     # Si l'user appelant est inscrit à cet event → permet à la liste
     # mobile d'afficher un badge "Inscrit" sans recharger le détail.
     is_registered: bool = False
+    # Modèle économique (#200) — exposé en list item car on veut le
+    # badge "Gratuit" vs "5 000 F" directement dans la liste.
+    is_free: bool = True
+    price_xof: int | None = None
 
 
 class EventListResponse(BaseModel):
@@ -51,6 +55,9 @@ class EventDetailResponse(EventListItem):
     sponsor_name: str | None = None
     is_registered: bool = False
     registration_status: str | None = None
+    # Détails affichés uniquement sur la page event (#200).
+    dress_code: str | None = None
+    important_notes: str | None = None
 
 
 class EventRegisterResponse(BaseModel):

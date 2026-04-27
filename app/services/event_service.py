@@ -115,6 +115,8 @@ async def list_events(
             "current_attendees": ev.current_attendees,
             "slug": ev.slug,
             "is_registered": ev.id in registered_ids,
+            "is_free": ev.is_free,
+            "price_xof": ev.price_xof,
         }
         for ev, spot_name in rows
     ]
@@ -154,6 +156,10 @@ async def get_event_detail(
         "sponsor_name": ev.sponsor_name,
         "is_registered": reg is not None,
         "registration_status": reg.status if reg else None,
+        "is_free": ev.is_free,
+        "price_xof": ev.price_xof,
+        "dress_code": ev.dress_code,
+        "important_notes": ev.important_notes,
     }
 
 

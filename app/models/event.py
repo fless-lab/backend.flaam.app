@@ -60,6 +60,19 @@ class Event(Base, UUIDMixin, TimestampMixin):
         String(120), unique=True, nullable=True, index=True
     )
 
+    # Modèle économique de l'event (#200) :
+    # - is_free True : gratuit (price_xof ignoré)
+    # - is_free False + price_xof renseigné : entrée payante en FCFA
+    # - is_free False + price_xof null : payant, prix à confirmer sur place
+    is_free: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    price_xof: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Code vestimentaire suggéré (court). Ex: "Tenue blanche", "Casual chic".
+    dress_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # "À savoir" — précisions importantes (RSVP requis, âge mini, etc.).
+    important_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     spot = relationship("Spot", lazy="selectin")
     registrations = relationship(
         "EventRegistration", back_populates="event", lazy="selectin"
