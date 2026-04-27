@@ -86,8 +86,6 @@ def compute_pin_lock_until(failed_attempts: int) -> "datetime | None":
     - 10+ échecs    : lock 1h (cumulé : reset uniquement à la prochaine
                        réussite, pour ne pas se faire DOS par un script)
     """
-    from datetime import datetime, timedelta, timezone
-
     from app.core.constants import (
         MFA_LOCK_TIER_1_ATTEMPTS,
         MFA_LOCK_TIER_1_DURATION_MINUTES,

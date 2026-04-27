@@ -10,6 +10,8 @@ Le flag n'est **jamais** modifiable via un endpoint utilisateur : la
 promotion admin se fait manuellement en base (psql ou script de seed).
 """
 
+from datetime import datetime, timezone
+
 from fastapi import Depends, Header, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,7 +55,6 @@ async def require_pin(
 
     # Lock anti-bruteforce
     if user.mfa_locked_until is not None:
-        from datetime import datetime, timezone
         locked = user.mfa_locked_until
         if locked.tzinfo is None:
             locked = locked.replace(tzinfo=timezone.utc)
