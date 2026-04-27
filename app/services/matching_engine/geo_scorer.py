@@ -99,10 +99,17 @@ async def _load_legacy_proximity_cache(
 async def _load_dynamic_proximity_cache(
     city_id: UUID, db_session: AsyncSession
 ) -> None:
-    """Calcul à la volée toutes les paires de quartiers de la ville."""
+    """Calcul à la volée toutes les paires de quartiers de la ville.
+
+    Les multiplicateurs overlap (base + amplitude) sont lus une fois
+    dans Redis (config_service) et propagés à compute_proximity_sync.
+    Modifiables à chaud sans redémarrage api.
+    """
     global _proximity_cache
     from app.models.city import City
+    from app.services.config_service import get_configs
     from app.services.quartier_proximity_service import compute_proximity_sync
+    from app.db.redis import redis_pool
 
     res_q = await db_session.execute(
         select(Quartier).where(Quartier.city_id == city_id)
@@ -113,12 +120,19 @@ async def _load_dynamic_proximity_cache(
     )
     diameter_km = res_c.scalar_one_or_none()
 
+    cfg = await get_configs(
+        ("geo_overlap_score_base", "geo_overlap_score_amplitude"),
+        redis_pool.client, db_session,
+    )
+    base = cfg.get("geo_overlap_score_base", 0.85)
+    amplitude = cfg.get("geo_overlap_score_amplitude", 0.15)
+
     _proximity_cache = {}
     n = len(quartiers)
     for i in range(n):
         for j in range(i + 1, n):
             a, b = quartiers[i], quartiers[j]
-            score = compute_proximity_sync(a, b, diameter_km)
+            score = compute_proximity_sync(a, b, diameter_km, base, amplitude)
             _proximity_cache[(a.id, b.id)] = score
             _proximity_cache[(b.id, a.id)] = score
 

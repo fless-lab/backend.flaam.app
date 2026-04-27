@@ -27,6 +27,12 @@ MATCHING_DEFAULTS: dict[str, float] = {
     "geo_w_quartier_interested": 0.8,
     # Seuil sous lequel on ignore la proximité (bruit des quartiers éloignés)
     "geo_proximity_threshold": 0.40,
+    # ── Proximity dynamique R&D (#216, #219) ──
+    # Score plancher quand 2 zones se touchent (overlap_ratio = 0).
+    # Score = base + amplitude × overlap_ratio. Permet de tuner sans
+    # redéploiement quand on aura des retours data.
+    "geo_overlap_score_base": 0.85,
+    "geo_overlap_score_amplitude": 0.15,
     # ── Algo géo simplifié (beta) ──
     # 1.0 = nouveau (Jaccard set unifié + bonus signal fort lives/works)
     # 0.0 = legacy (4 passes pondérées par relation_type)

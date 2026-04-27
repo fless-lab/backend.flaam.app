@@ -64,11 +64,21 @@ def _polygon_from_quartier(q: Quartier) -> Polygon | None:
 
 
 def compute_proximity_sync(
-    a: Quartier, b: Quartier, city_diameter_km: float | None
+    a: Quartier,
+    b: Quartier,
+    city_diameter_km: float | None,
+    overlap_base: float = 0.85,
+    overlap_amplitude: float = 0.15,
 ) -> float:
     """
     Calcule le score sans I/O (testable en isolation).
     Retourne un float ∈ [0, 1].
+
+    Les multiplicateurs `overlap_base` et `overlap_amplitude` sont
+    paramétrables via Redis (MATCHING_DEFAULTS) — les callers async
+    (`get_proximity` + `_load_dynamic_proximity_cache`) les passent
+    en paramètres après lecture config. Les valeurs par défaut ici
+    n'agissent qu'en cas d'appel direct sans passer par get_configs.
     """
     if a.id == b.id:
         return 1.0
@@ -88,8 +98,7 @@ def compute_proximity_sync(
             inter = poly_a.intersection(poly_b).area
             min_area = min(poly_a.area, poly_b.area)
             overlap_ratio = inter / min_area if min_area > 0 else 0.0
-            # Base 0.85 si zones touchent, jusqu'à 1.0 en overlap total.
-            return min(1.0, 0.85 + 0.15 * overlap_ratio)
+            return min(1.0, overlap_base + overlap_amplitude * overlap_ratio)
         # Zones distinctes mais on a quand même les centroïdes.
         return _centroid_score(
             poly_a.centroid.y, poly_a.centroid.x,
@@ -138,6 +147,9 @@ async def get_proximity(
     """
     Point d'entrée — vérifie le cache Redis, sinon charge les quartiers
     + city, calcule, stocke et retourne.
+
+    Les multiplicateurs (overlap_base, overlap_amplitude) sont lus depuis
+    Redis via config_service — modifiables à chaud sans redémarrage.
     """
     if quartier_a_id == quartier_b_id:
         return 1.0
@@ -164,7 +176,16 @@ async def get_proximity(
     city = res_c.scalar_one_or_none()
     diameter = city.diameter_km if city else None
 
-    score = compute_proximity_sync(a, b, diameter)
+    # Lecture des multiplicateurs Redis (60s cache via get_configs)
+    from app.services.config_service import get_configs
+    cfg = await get_configs(
+        ("geo_overlap_score_base", "geo_overlap_score_amplitude"),
+        redis, db,
+    )
+    base = cfg.get("geo_overlap_score_base", 0.85)
+    amplitude = cfg.get("geo_overlap_score_amplitude", 0.15)
+
+    score = compute_proximity_sync(a, b, diameter, base, amplitude)
     await redis.set(
         key, str(score), ex=_settings.geolocated_proximity_cache_ttl_seconds,
     )
