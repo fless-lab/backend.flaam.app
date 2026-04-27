@@ -52,11 +52,34 @@ async def load_proximity_cache(city_id: UUID, db_session: AsyncSession) -> None:
     Charge le graphe de proximité d'une ville en mémoire.
     Idempotent : si déjà chargé pour la même ville, no-op.
     Utiliser `reset_proximity_cache()` pour forcer un rechargement.
+
+    Deux modes selon settings.geolocated_quartiers_enabled (#216) :
+
+    - OFF (legacy) : lit la table `quartier_proximity` figée.
+    - ON (R&D) : charge tous les quartiers de la ville + calcule chaque
+      paire dynamiquement via compute_proximity_sync (polygons + dist).
+      Le résultat tient en mémoire pour la durée du batch — on n'utilise
+      pas Redis ici car le cache module-level est déjà optimal pour la
+      taille (N quartiers ⇒ N² paires, négligeable jusqu'à N≈100).
     """
     global _proximity_cache, _proximity_cache_loaded_for
     if _proximity_cache_loaded_for == city_id and _proximity_cache:
         return
 
+    from app.core.config import get_settings
+
+    if get_settings().geolocated_quartiers_enabled:
+        await _load_dynamic_proximity_cache(city_id, db_session)
+    else:
+        await _load_legacy_proximity_cache(city_id, db_session)
+    _proximity_cache_loaded_for = city_id
+
+
+async def _load_legacy_proximity_cache(
+    city_id: UUID, db_session: AsyncSession
+) -> None:
+    """Ancien comportement — lit la table quartier_proximity."""
+    global _proximity_cache
     stmt = (
         select(
             QuartierProximity.quartier_a_id,
@@ -67,12 +90,37 @@ async def load_proximity_cache(city_id: UUID, db_session: AsyncSession) -> None:
         .where(Quartier.city_id == city_id)
     )
     rows = await db_session.execute(stmt)
-
     _proximity_cache = {}
     for a_id, b_id, score in rows.all():
         _proximity_cache[(a_id, b_id)] = float(score)
         _proximity_cache[(b_id, a_id)] = float(score)
-    _proximity_cache_loaded_for = city_id
+
+
+async def _load_dynamic_proximity_cache(
+    city_id: UUID, db_session: AsyncSession
+) -> None:
+    """Calcul à la volée toutes les paires de quartiers de la ville."""
+    global _proximity_cache
+    from app.models.city import City
+    from app.services.quartier_proximity_service import compute_proximity_sync
+
+    res_q = await db_session.execute(
+        select(Quartier).where(Quartier.city_id == city_id)
+    )
+    quartiers = list(res_q.scalars())
+    res_c = await db_session.execute(
+        select(City.diameter_km).where(City.id == city_id)
+    )
+    diameter_km = res_c.scalar_one_or_none()
+
+    _proximity_cache = {}
+    n = len(quartiers)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = quartiers[i], quartiers[j]
+            score = compute_proximity_sync(a, b, diameter_km)
+            _proximity_cache[(a.id, b.id)] = score
+            _proximity_cache[(b.id, a.id)] = score
 
 
 def reset_proximity_cache() -> None:

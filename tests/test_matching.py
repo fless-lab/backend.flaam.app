@@ -991,3 +991,93 @@ def test_age_fit_clamp_at_overlap():
         candidate_seeking_age_max=35,
     )
     assert fit == pytest.approx(0.40)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# R&D Quartier proximity dynamic (#216)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _make_quartier_with_polygon(
+    name: str,
+    bbox: tuple[float, float, float, float],
+):
+    """Helper qui simule un Quartier avec area shapely (sans DB)."""
+    from types import SimpleNamespace
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import Polygon
+
+    min_lat, min_lng, max_lat, max_lng = bbox
+    poly = Polygon([
+        (min_lng, min_lat), (max_lng, min_lat),
+        (max_lng, max_lat), (min_lng, max_lat),
+        (min_lng, min_lat),
+    ])
+    centroid = poly.centroid
+    return SimpleNamespace(
+        id=uuid4(),
+        name=name,
+        latitude=centroid.y,
+        longitude=centroid.x,
+        area=from_shape(poly, srid=4326),
+    )
+
+
+def _make_quartier_legacy(name: str, lat: float, lng: float):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        id=uuid4(),
+        name=name,
+        latitude=lat,
+        longitude=lng,
+        area=None,
+    )
+
+
+def test_proximity_same_quartier_returns_1():
+    from app.services.quartier_proximity_service import compute_proximity_sync
+
+    a = _make_quartier_with_polygon("X", (6.15, 1.20, 6.18, 1.23))
+    a.id = a.id  # même id
+    score = compute_proximity_sync(a, a, city_diameter_km=8.0)
+    assert score == 1.0
+
+
+def test_proximity_overlapping_zones_high_score():
+    from app.services.quartier_proximity_service import compute_proximity_sync
+
+    a = _make_quartier_with_polygon("A", (6.15, 1.20, 6.18, 1.23))
+    b = _make_quartier_with_polygon("B", (6.16, 1.21, 6.19, 1.24))  # overlap
+    score = compute_proximity_sync(a, b, city_diameter_km=8.0)
+    # Zones se chevauchent → 0.85+ par construction
+    assert score >= 0.85
+
+
+def test_proximity_distant_zones_decay_with_diameter():
+    from app.services.quartier_proximity_service import compute_proximity_sync
+
+    a = _make_quartier_with_polygon("A", (6.10, 1.20, 6.13, 1.23))
+    b = _make_quartier_with_polygon("B", (6.20, 1.20, 6.23, 1.23))  # ~11 km plus au nord
+    score_small = compute_proximity_sync(a, b, city_diameter_km=8.0)
+    score_large = compute_proximity_sync(a, b, city_diameter_km=40.0)
+    # Plus la ville est grande, plus la distance "absolue" pèse moins
+    assert score_large > score_small
+
+
+def test_proximity_legacy_fallback_no_polygons():
+    from app.services.quartier_proximity_service import compute_proximity_sync
+
+    a = _make_quartier_legacy("A", 6.16, 1.21)
+    b = _make_quartier_legacy("B", 6.18, 1.23)  # ~3 km
+    score = compute_proximity_sync(a, b, city_diameter_km=8.0)
+    assert 0.5 < score < 1.0
+
+
+def test_proximity_missing_data_returns_neutral():
+    from types import SimpleNamespace
+    from app.services.quartier_proximity_service import compute_proximity_sync
+
+    a = SimpleNamespace(id=uuid4(), area=None, latitude=None, longitude=None)
+    b = SimpleNamespace(id=uuid4(), area=None, latitude=None, longitude=None)
+    score = compute_proximity_sync(a, b, city_diameter_km=8.0)
+    assert score == 0.5
