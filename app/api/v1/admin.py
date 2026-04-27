@@ -1173,6 +1173,30 @@ async def get_kpis(
 # ══════════════════════════════════════════════════════════════════════
 
 
+@router.post("/cities/{city_id}/recompute-diameter")
+async def admin_recompute_city_diameter(
+    city_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> dict:
+    """
+    Recalcule city.diameter_km à partir des quartiers actuels (#218).
+    Invalide le cache proximity Redis pour cette ville.
+
+    À utiliser après ajout/édition de quartier ou import d'une nouvelle
+    ville. Bouton "recompute" admin avant de switcher
+    geolocated_quartiers_enabled = True en prod.
+    """
+    from app.services.quartier_proximity_service import recompute_city_diameter
+
+    diameter = await recompute_city_diameter(city_id, db, redis)
+    if diameter is None:
+        raise AppException(
+            status.HTTP_400_BAD_REQUEST, "city_has_less_than_2_quartiers",
+        )
+    return {"city_id": str(city_id), "diameter_km": diameter}
+
+
 @router.get("/matching/trace-pair")
 async def admin_trace_pair(
     user_a: UUID = Query(..., description="ID du user qui consulte le feed"),

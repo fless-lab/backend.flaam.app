@@ -188,8 +188,55 @@ async def invalidate_for_city(
     return deleted
 
 
+async def recompute_city_diameter(
+    city_id: UUID,
+    db: AsyncSession,
+    redis: aioredis.Redis | None = None,
+) -> float | None:
+    """
+    Recalcule city.diameter_km comme la max distance haversine entre
+    2 centroïdes de quartiers de la ville (#218 R&D Phase 4).
+
+    À appeler après :
+    - Ajout d'un nouveau quartier dans la ville
+    - Édition de quartier.area (centroïde déplacé)
+    - Migration data initiale (1 fois par ville)
+
+    Si `redis` fourni, invalide aussi le cache proximity (les scores
+    dépendent du diameter).
+
+    Retourne la nouvelle valeur ou None si < 2 quartiers (ville trop
+    petite pour un diameter significatif).
+    """
+    res = await db.execute(
+        select(Quartier.latitude, Quartier.longitude)
+        .where(Quartier.city_id == city_id)
+    )
+    points = list(res.all())
+    if len(points) < 2:
+        return None
+
+    max_d = 0.0
+    for i, (lat_a, lng_a) in enumerate(points):
+        for lat_b, lng_b in points[i + 1:]:
+            d = _haversine_km(lat_a, lng_a, lat_b, lng_b)
+            if d > max_d:
+                max_d = d
+
+    res_city = await db.execute(select(City).where(City.id == city_id))
+    city = res_city.scalar_one_or_none()
+    if city is not None:
+        city.diameter_km = max_d
+        await db.commit()
+
+    if redis is not None:
+        await invalidate_for_city(city_id, redis)
+    return max_d
+
+
 __all__ = [
     "compute_proximity_sync",
     "get_proximity",
     "invalidate_for_city",
+    "recompute_city_diameter",
 ]
