@@ -1166,3 +1166,28 @@ async def get_kpis(
         }
         for r in rows
     ]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Matching debug — trace_pair (#190)
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.get("/matching/trace-pair")
+async def admin_trace_pair(
+    user_a: UUID = Query(..., description="ID du user qui consulte le feed"),
+    user_b: UUID = Query(..., description="ID du candidat à scorer"),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> dict:
+    """
+    Décompose le score user_a → user_b en sous-scores (geo, lifestyle,
+    behavior, age_fit) + poids adaptatifs + résultat final.
+
+    Court-circuite les hard filters et la sélection de candidats pour
+    permettre de comprendre pourquoi un profil donné n'apparaît pas
+    (ou apparaît trop bas) dans le feed.
+    """
+    from app.services.matching_engine.pipeline import trace_pair
+
+    return await trace_pair(user_a, user_b, db, redis)
