@@ -57,27 +57,6 @@ def _intention_score(user_intention: str | None, cand_intention: str | None) -> 
     )
 
 
-def _rhythm_score(user_rhythm: str | None, cand_rhythm: str | None) -> float:
-    # Schema Rhythm = "early_bird" | "night_owl" | None.
-    # None = non renseigné → neutre 0.7.
-    if user_rhythm is None or cand_rhythm is None:
-        return 0.7
-    if user_rhythm == cand_rhythm:
-        return 1.0
-    return 0.3  # opposés
-
-
-def _languages_score(user_langs: list | None, cand_langs: list | None) -> float:
-    u = set(user_langs or [])
-    c = set(cand_langs or [])
-    if not u or not c:
-        return 0.5  # donnée manquante → neutre
-    common = u & c
-    if not common:
-        return 0.0
-    return min(1.0, len(common) / 2.0)  # 1 langue = 0.5, 2+ = 1.0
-
-
 async def compute_lifestyle_scores(
     user,
     candidate_ids: list[UUID],
@@ -95,10 +74,11 @@ async def compute_lifestyle_scores(
 
     cand_profiles = await _load_candidate_profiles(candidate_ids, db_session)
 
-    w_tags = config.get("lifestyle_w_tags", 0.50)
-    w_int = config.get("lifestyle_w_intention", 0.25)
-    w_rhy = config.get("lifestyle_w_rhythm", 0.15)
-    w_lan = config.get("lifestyle_w_languages", 0.10)
+    # Lifestyle score : tags (couleur) + intention (contrat).
+    # rhythm et languages ont été retirés du scoring : rhythm n'existe
+    # plus en DB ; languages reste comme champ d'affichage non scoré.
+    w_tags = config.get("lifestyle_w_tags", 0.35)
+    w_int = config.get("lifestyle_w_intention", 0.65)
 
     scores: dict[UUID, float] = {}
     for cid in candidate_ids:
@@ -110,8 +90,6 @@ async def compute_lifestyle_scores(
         raw = (
             w_tags * _tags_jaccard(profile.tags, cand.tags)
             + w_int * _intention_score(profile.intention, cand.intention)
-            + w_rhy * _rhythm_score(profile.rhythm, cand.rhythm)
-            + w_lan * _languages_score(profile.languages, cand.languages)
         )
         scores[cid] = max(0.0, min(1.0, raw))
 

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import (
     MATCHING_ACTIVE_WINDOW_DAYS,
+    MATCHING_AGE_OVERLAP_YEARS,
     MATCHING_SKIP_COOLDOWN_DAYS,
 )
 from app.models.block import Block
@@ -100,11 +101,15 @@ async def apply_hard_filters(
     user_age = _calculate_age(profile.birth_date, today)
 
     # ── Bornes dates pour l'âge du candidat ──
-    # candidate_age ∈ [user.seeking_age_min, user.seeking_age_max]
-    # ⇒ birth_date ∈ [today - (max+1)y + 1j, today - min y]
-    max_birth = date(today.year - profile.seeking_age_min, today.month, today.day)
+    # candidate_age ∈ [user.seeking_age_min - N, user.seeking_age_max + N]
+    # où N = MATCHING_AGE_OVERLAP_YEARS. La zone d'overlap est ensuite
+    # pénalisée par un multiplicateur soft (cf. age_fit dans pipeline).
+    overlap = MATCHING_AGE_OVERLAP_YEARS
+    soft_min = max(18, profile.seeking_age_min - overlap)
+    soft_max = profile.seeking_age_max + overlap
+    max_birth = date(today.year - soft_min, today.month, today.day)
     min_birth = date(
-        today.year - profile.seeking_age_max - 1, today.month, today.day
+        today.year - soft_max - 1, today.month, today.day
     ) + timedelta(days=1)
 
     stmt = (
@@ -133,8 +138,9 @@ async def apply_hard_filters(
                 Profile.birth_date >= min_birth,
                 Profile.birth_date <= max_birth,
                 # Âge du user dans la fourchette cherchée par le candidat
-                Profile.seeking_age_min <= user_age,
-                Profile.seeking_age_max >= user_age,
+                # (élargie de ±N ans, soft drop-off appliqué au scoring)
+                Profile.seeking_age_min - overlap <= user_age,
+                Profile.seeking_age_max + overlap >= user_age,
                 # Genre bidir
                 _seeking_gender_match(
                     profile.seeking_gender,

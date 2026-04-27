@@ -51,14 +51,12 @@ MATCHING_DEFAULTS: dict[str, float] = {
     #   v2 — zero out rhythm/languages (data trop éparse early-stage),
     #        tags reste dominant :
     #     lifestyle_w_tags=0.65, lifestyle_w_intention=0.35
-    # v3 (actuel) — intention dominant : les tags = couleur (la diversité
-    # enrichit, des opposés peuvent matcher), l'intention = contrat (un
-    # mismatch reste un mismatch). Compense le passage hard→soft du filtre
-    # d'intention en hard_filters.py.
+    #   v3 — intention dominant (mismatch d'intention = vrai mismatch).
+    # v4 (actuel) — rhythm supprimé du modèle, languages devient
+    # purement affichage (pas dans le score). Le scorer ne combine
+    # plus que tags + intention.
     "lifestyle_w_tags": 0.35,
     "lifestyle_w_intention": 0.65,
-    "lifestyle_w_rhythm": 0.0,
-    "lifestyle_w_languages": 0.0,
 
     # ── L4 behavior ──
     "behavior_min_multiplier": 0.6,
@@ -218,6 +216,16 @@ MATCHING_FEED_MIN_SCORE: float = 0.15  # score min sur échelle [0, 1]
 # possible) sans pour autant rendre le skip inutile.
 MATCHING_SKIP_COOLDOWN_DAYS: int = 10
 MATCHING_ACTIVE_WINDOW_DAYS: int = 7
+
+# Age range — overlap soft + drop-off linéaire.
+# Le hard filter laisse passer les candidats jusqu'à ±N ans hors du
+# range déclaré (dans les 2 sens : user-vers-candidat ET réciproque).
+# Au-delà → exclus. Dans la zone d'overlap, un multiplicateur ∈ [0.4, 1]
+# pénalise le score final selon la pire des 2 distances. Évite d'écraser
+# brutalement à la limite d'âge ("24 ans cherche 25-30, candidat 24"
+# n'est pas absurde) tout en gardant la préférence user.
+MATCHING_AGE_OVERLAP_YEARS: int = 3
+MATCHING_AGE_FIT_PENALTY_PER_YEAR: float = 0.20  # 1y=0.80, 2y=0.60, 3y=0.40
 
 # Implicit preferences ajustent ±15% le lifestyle score selon l'historique
 # de like/skip de l'user. Désactivé par défaut tant qu'on n'a pas la data

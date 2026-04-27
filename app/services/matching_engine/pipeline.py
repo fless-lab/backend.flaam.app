@@ -45,6 +45,7 @@ from app.core.constants import (
 from app.models.profile import Profile
 from app.models.user import User
 from app.services.config_service import get_configs
+from app.services.matching_engine.age_fit import compute_age_fit
 from app.services.matching_engine.behavior_scorer import get_behavior_multipliers
 from app.services.matching_engine.corrections import (
     apply_new_user_boost,
@@ -86,8 +87,6 @@ _CONFIG_KEYS = (
     # L3
     "lifestyle_w_tags",
     "lifestyle_w_intention",
-    "lifestyle_w_rhythm",
-    "lifestyle_w_languages",
     # L5
     "wildcard_count",
     "new_user_boost_count",
@@ -175,15 +174,16 @@ async def generate_feed_for_user(
     lifestyle_scores = await compute_lifestyle_scores(
         user, candidate_ids, config, db_session
     )
+    # Charge les profils candidats une fois — utilisé par implicit + age_fit
+    prof_rows = await db_session.execute(
+        select(Profile).where(Profile.user_id.in_(candidate_ids))
+    )
+    cand_profiles = {p.user_id: p for p in prof_rows.scalars()}
     if IMPLICIT_PREFERENCES_ENABLED:
         implicit_profile = await compute_implicit_profile(
             user.id, db_session, redis_client
         )
         if implicit_profile.get("confidence", 0.0) >= 0.3:
-            prof_rows = await db_session.execute(
-                select(Profile).where(Profile.user_id.in_(candidate_ids))
-            )
-            cand_profiles = {p.user_id: p for p in prof_rows.scalars()}
             for cid, score in list(lifestyle_scores.items()):
                 cp = cand_profiles.get(cid)
                 if cp is None:
@@ -202,6 +202,13 @@ async def generate_feed_for_user(
         account_age_days, redis_client, db_session
     )
 
+    # Âge du user (pour age_fit bidirectionnel)
+    today = datetime.now(timezone.utc).date()
+    user_age = today.year - user.profile.birth_date.year - (
+        (today.month, today.day)
+        < (user.profile.birth_date.month, user.profile.birth_date.day)
+    )
+
     final_scores: dict[UUID, float] = {}
     for cid in candidate_ids:
         g = geo_scores.get(cid, 0.0)
@@ -211,7 +218,27 @@ async def generate_feed_for_user(
         # Le poids behavior_w ∈ [0.10, 0.45] pilote l'amplitude de l'effet :
         # on blend linéairement entre 1.0 (pas d'effet) et m (effet total).
         behavior_effect = 1.0 + (m - 1.0) * beh_w
-        final_scores[cid] = (geo_w * g + life_w * lif) * behavior_effect
+
+        # Age fit : multiplicateur soft ∈ [0.4, 1.0] selon distance hors-range
+        age_fit = 1.0
+        cp = cand_profiles.get(cid)
+        if cp is not None:
+            cand_age = today.year - cp.birth_date.year - (
+                (today.month, today.day)
+                < (cp.birth_date.month, cp.birth_date.day)
+            )
+            age_fit = compute_age_fit(
+                user_age=user_age,
+                candidate_age=cand_age,
+                user_seeking_age_min=user.profile.seeking_age_min,
+                user_seeking_age_max=user.profile.seeking_age_max,
+                candidate_seeking_age_min=cp.seeking_age_min,
+                candidate_seeking_age_max=cp.seeking_age_max,
+            )
+
+        final_scores[cid] = (
+            (geo_w * g + life_w * lif) * behavior_effect * age_fit
+        )
 
     sorted_candidates = sorted(
         final_scores.items(), key=lambda x: x[1], reverse=True
@@ -362,7 +389,25 @@ async def trace_pair(
         account_age_days, redis_client, db_session
     )
     behavior_effect = 1.0 + (m - 1.0) * beh_w
-    final = (geo_w * geo_after + life_w * lifestyle) * behavior_effect
+
+    today = datetime.now(timezone.utc).date()
+    user_age = today.year - user.profile.birth_date.year - (
+        (today.month, today.day)
+        < (user.profile.birth_date.month, user.profile.birth_date.day)
+    )
+    other_age = today.year - other.profile.birth_date.year - (
+        (today.month, today.day)
+        < (other.profile.birth_date.month, other.profile.birth_date.day)
+    )
+    age_fit = compute_age_fit(
+        user_age=user_age,
+        candidate_age=other_age,
+        user_seeking_age_min=user.profile.seeking_age_min,
+        user_seeking_age_max=user.profile.seeking_age_max,
+        candidate_seeking_age_min=other.profile.seeking_age_min,
+        candidate_seeking_age_max=other.profile.seeking_age_max,
+    )
+    final = (geo_w * geo_after + life_w * lifestyle) * behavior_effect * age_fit
 
     return {
         "user_a": str(user_a_id),
@@ -376,6 +421,7 @@ async def trace_pair(
             "lifestyle": lifestyle,
             "behavior_multiplier": m,
             "behavior_effect": behavior_effect,
+            "age_fit": age_fit,
             "final": final,
         },
         "min_score_threshold": MATCHING_FEED_MIN_SCORE,

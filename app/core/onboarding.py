@@ -47,7 +47,8 @@ class OnboardingStep(str, Enum):
     BIO = "bio"                             # nudge après 1er match
     SPOTS = "spots"                         # nudge après 1er check-in
     SECTOR = "sector"                       # optionnel, settings
-    PROMPTS = "prompts"                     # déprécié, code conservé pour réactivation future
+    PROMPTS = "prompts"                     # affichage uniquement, max 3, palier 3% par prompt
+    LANGUAGES = "languages"                 # affichage uniquement, ≥1 langue
     NOTIFICATION_PERMISSION = "notification_permission"  # géré côté mobile au 1er render du feed
 
 
@@ -71,25 +72,26 @@ SKIPPABLE_STEPS: set[OnboardingStep] = {
     # sont en édition profil, pas dans le flow.
 }
 
-# Poids pour le score de complétion (§13).
-# Le score reflète l'état COMPLET du profil (onboarding + enrichissements
-# édit profil), pas seulement le flow d'inscription. Total = 1.0.
+# Poids pour le score de complétion (§13). Total = 1.0.
+# Le score mesure "à quel point ton profil est riche pour les autres",
+# pas l'état d'onboarding. SELFIE et SEARCH_AREA sont des gates côté
+# accès feed — gardés à 0 ici pour ne pas pénaliser le score.
+# PROMPTS est calculé en palier (3% par prompt rempli, plafonné 9%) —
+# cf. compute_completeness, le poids ci-dessous est l'enveloppe max.
 STEP_COMPLETENESS_WEIGHT: dict[str, float] = {
-    # Onboarding (cumulé : 0.85)
-    OnboardingStep.BASIC_INFO.value: 0.0,
-    OnboardingStep.SELFIE_VERIFICATION.value: 0.15,
-    OnboardingStep.SEARCH_AREA.value: 0.15,
-    OnboardingStep.PHOTOS.value: 0.30,
+    OnboardingStep.PHOTOS.value: 0.25,
+    OnboardingStep.BIO.value: 0.15,
     OnboardingStep.INTENTION.value: 0.10,
-    OnboardingStep.TAGS.value: 0.15,
-    # Enrichissements (cumulé : 0.15) — édit profil, débloque la
-    # complétude maximum mais pas l'accès au feed.
-    OnboardingStep.BIO.value: 0.10,
-    OnboardingStep.SPOTS.value: 0.05,
-    # Désactivés / legacy (poids 0)
-    OnboardingStep.SECTOR.value: 0.0,
-    OnboardingStep.PROMPTS.value: 0.0,
-    OnboardingStep.QUARTIERS.value: 0.0,
+    OnboardingStep.SECTOR.value: 0.10,
+    OnboardingStep.QUARTIERS.value: 0.10,
+    OnboardingStep.SPOTS.value: 0.10,
+    OnboardingStep.PROMPTS.value: 0.09,   # palier 3% × N prompts
+    OnboardingStep.TAGS.value: 0.06,
+    OnboardingStep.LANGUAGES.value: 0.05,
+    # Gates (présence requise pour le feed mais pas dans le %)
+    OnboardingStep.BASIC_INFO.value: 0.0,
+    OnboardingStep.SELFIE_VERIFICATION.value: 0.0,
+    OnboardingStep.SEARCH_AREA.value: 0.0,
     OnboardingStep.CITY_SELECTION.value: 0.0,
 }
 
@@ -170,6 +172,8 @@ def is_step_done(
         )
     if step is OnboardingStep.PROMPTS:
         return profile is not None and bool(profile.prompts)
+    if step is OnboardingStep.LANGUAGES:
+        return profile is not None and bool(profile.languages)
     if step is OnboardingStep.TAGS:
         return profile is not None and bool(profile.tags)
     if step is OnboardingStep.SPOTS:
@@ -211,7 +215,8 @@ def compute_completeness(
     Retourne (score, breakdown). Le score est clampé à 1.0.
 
     Breakdown = liste [{step, weight, achieved}] pour chaque étape
-    pondérée (poids > 0).
+    pondérée (poids > 0). Pour PROMPTS, on retourne aussi `count` et
+    `partial_score` car le calcul est en palier (3% par prompt rempli).
     """
     score = 0.0
     breakdown: list[dict] = []
@@ -219,6 +224,23 @@ def compute_completeness(
         if weight <= 0:
             continue
         step = OnboardingStep(step_name)
+        # Cas spécial : prompts en palier 3% × N (max 3 → max 9%).
+        # Évite que l'user spam 1 prompt vide et touche tout le quota.
+        if step is OnboardingStep.PROMPTS:
+            count = (
+                len(profile.prompts) if profile and profile.prompts else 0
+            )
+            count = min(count, 3)
+            partial = round(count * 0.03, 4)
+            score += partial
+            breakdown.append({
+                "step": step_name,
+                "weight": weight,
+                "achieved": count >= 3,
+                "count": count,
+                "partial_score": partial,
+            })
+            continue
         achieved = is_step_done(step, user, profile)
         if achieved:
             score += weight

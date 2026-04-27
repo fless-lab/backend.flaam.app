@@ -154,7 +154,6 @@ async def _make_user(
     birth_year: int = 1998,
     intention: str = "serious",
     sector: str = "tech",
-    rhythm: str | None = "early_bird",
     tags: list[str] | None = None,
     languages: list[str] | None = None,
     completeness: float = 0.85,
@@ -194,7 +193,6 @@ async def _make_user(
         seeking_gender=seeking,
         intention=intention,
         sector=sector,
-        rhythm=rhythm,
         tags=tags or [],
         languages=languages or ["fr"],
         seeking_age_min=18,
@@ -910,3 +908,86 @@ async def test_config_service_fallback_to_default(db_session, redis_client):
 
     v = await get_config("geo_w_quartier", redis_client, db_session)
     assert v == pytest.approx(0.45)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Age fit (overlap ±3 ans + soft drop-off)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_age_fit_perfect_match():
+    from app.services.matching_engine.age_fit import compute_age_fit
+
+    # Tous les 2 dans range stricte → 1.0
+    fit = compute_age_fit(
+        user_age=27,
+        candidate_age=28,
+        user_seeking_age_min=25,
+        user_seeking_age_max=30,
+        candidate_seeking_age_min=25,
+        candidate_seeking_age_max=30,
+    )
+    assert fit == pytest.approx(1.0)
+
+
+def test_age_fit_one_year_below_user_range():
+    from app.services.matching_engine.age_fit import compute_age_fit
+
+    # Candidat 1 an sous le min user → 1 - 0.20 = 0.80
+    fit = compute_age_fit(
+        user_age=27,
+        candidate_age=24,
+        user_seeking_age_min=25,
+        user_seeking_age_max=30,
+        candidate_seeking_age_min=20,
+        candidate_seeking_age_max=35,
+    )
+    assert fit == pytest.approx(0.80)
+
+
+def test_age_fit_three_years_floor():
+    from app.services.matching_engine.age_fit import compute_age_fit
+
+    # Candidat 3 ans hors range → 1 - 3*0.20 = 0.40 (le floor)
+    fit = compute_age_fit(
+        user_age=27,
+        candidate_age=22,
+        user_seeking_age_min=25,
+        user_seeking_age_max=30,
+        candidate_seeking_age_min=20,
+        candidate_seeking_age_max=35,
+    )
+    assert fit == pytest.approx(0.40)
+
+
+def test_age_fit_takes_worst_of_both_directions():
+    from app.services.matching_engine.age_fit import compute_age_fit
+
+    # User 29 cherche 25-30, candidat 28 (OK, 0 hors range)
+    # Candidat 28 cherche 30-35, user 29 (1 an sous le min candidat)
+    # → max(0, 1) = 1 → fit = 0.80
+    fit = compute_age_fit(
+        user_age=29,
+        candidate_age=28,
+        user_seeking_age_min=25,
+        user_seeking_age_max=30,
+        candidate_seeking_age_min=30,
+        candidate_seeking_age_max=35,
+    )
+    assert fit == pytest.approx(0.80)
+
+
+def test_age_fit_clamp_at_overlap():
+    from app.services.matching_engine.age_fit import compute_age_fit
+
+    # Au-delà de l'overlap, le hard filter devrait avoir filtré, mais
+    # défensivement on clamp au floor au lieu de descendre à 0/négatif.
+    fit = compute_age_fit(
+        user_age=27,
+        candidate_age=18,
+        user_seeking_age_min=25,
+        user_seeking_age_max=30,
+        candidate_seeking_age_min=20,
+        candidate_seeking_age_max=35,
+    )
+    assert fit == pytest.approx(0.40)
