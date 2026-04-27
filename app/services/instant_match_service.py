@@ -149,7 +149,33 @@ async def _count_instant_today(user_id: UUID, role: str, db: AsyncSession) -> in
     return result.scalar_one() or 0
 
 
+async def _last_scan_at(scanner_id: UUID, db: AsyncSession) -> datetime | None:
+    """Timestamp du dernier instant_qr Match créé par ce scanner."""
+    result = await db.execute(
+        select(Match.created_at)
+        .where(
+            Match.user_a_id == scanner_id,
+            Match.origin == "instant_qr",
+        )
+        .order_by(Match.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def _check_rate_limits(scanner: User, target: User, db: AsyncSession) -> None:
+    # Cooldown 5 min entre 2 scans pour le même scanner (anti-ratissage IRL).
+    last = await _last_scan_at(scanner.id, db)
+    if last is not None:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+        if elapsed < settings.flame_scan_cooldown_seconds:
+            remaining = int(settings.flame_scan_cooldown_seconds - elapsed)
+            raise AppException(
+                429, f"flame_scan_cooldown_active:{remaining}",
+            )
+
     sent = await _count_instant_today(scanner.id, "scanner", db)
     if sent >= settings.flame_scans_sent_per_day:
         raise AppException(429, f"flame_scans_sent_today_exceeded:{settings.flame_scans_sent_per_day}")

@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # Fenêtre temporelle (minutes) pour considérer un check-in commun comme
     # validation de proximité (event/spot).
     flame_scan_checkin_window_min: int = 120
+    # Cooldown anti-spam entre 2 scans réussis du même scanner. Évite
+    # qu'un user enchaîne les insta-matches IRL en ratissant un événement.
+    # 5 min : suffisamment court pour ne pas frustrer un binôme qui
+    # s'amuse à se rescanner, suffisamment long pour casser le pattern
+    # "ratisseur".
+    flame_scan_cooldown_seconds: int = 300
 
     # Photo constraints (§3.7, §5.3)
     photo_max_size_bytes: int = 10 * 1024 * 1024  # 10 MB
