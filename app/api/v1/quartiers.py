@@ -29,16 +29,29 @@ async def list_quartiers(
     _me: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
+    import json as _json
+
+    from geoalchemy2.shape import to_shape
+    from shapely.geometry import mapping
+
     quartiers = await quartier_service.list_quartiers_by_city(city_id, db)
-    return [
-        {
+    out: list[dict] = []
+    for q in quartiers:
+        area_geojson: str | None = None
+        if q.area is not None:
+            try:
+                shape = to_shape(q.area)
+                area_geojson = _json.dumps(mapping(shape))
+            except Exception:
+                area_geojson = None
+        out.append({
             "id": q.id,
             "name": q.name,
             "latitude": q.latitude,
             "longitude": q.longitude,
-        }
-        for q in quartiers
-    ]
+            "area_geojson": area_geojson,
+        })
+    return out
 
 
 @router.post("/me", response_model=UserQuartierOut, status_code=201)

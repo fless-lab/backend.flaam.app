@@ -17,6 +17,10 @@ class QuartierOut(BaseModel):
     name: str
     latitude: float
     longitude: float
+    # Polygone GeoJSON sérialisé (#217 R&D Phase 3). Null si le quartier
+    # n'a pas encore de zone définie (legacy point-only). Le mobile parse
+    # cette string pour render le polygone sur osmdroid.
+    area_geojson: str | None = None
 
 
 class AddQuartierBody(BaseModel):
