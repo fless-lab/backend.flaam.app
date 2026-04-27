@@ -72,7 +72,7 @@ async def update_me(
         user, payload, db, lang=detect_lang(request)
     )
     # Invalidate city feeds if profile data affecting matching changed
-    # rhythm + languages retirés : poids = 0 dans lifestyle_scorer (v3).
+    # Champs qui invalident le feed : rhythm retiré, languages = display only.
     feed_fields = {"intention", "sector", "seeking"}
     just_completed = (
         user.onboarding_step == "completed" and old_step != "completed"
@@ -98,7 +98,7 @@ async def patch_me(
     result = await profile_service.patch_profile(
         user, payload, db, lang=detect_lang(request)
     )
-    # rhythm + languages retirés : poids = 0 dans lifestyle_scorer (v3).
+    # Champs qui invalident le feed : rhythm retiré, languages = display only.
     feed_fields = {"intention", "sector", "seeking"}
     just_completed = (
         user.onboarding_step == "completed" and old_step != "completed"

@@ -50,7 +50,6 @@ async def _make_user(
         seeking_gender="men",
         intention="serious",
         sector="tech",
-        rhythm="early_bird",
         tags=[],
         languages=["fr"],
         prompts=[],

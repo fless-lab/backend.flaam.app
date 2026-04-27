@@ -48,7 +48,6 @@ class FeedProfileItem(BaseModel):
     age: int
     intention: str | None = None
     sector: str | None = None
-    rhythm: str | None = None
     bio: str | None = None
 
     photos: list[PhotoResponse]

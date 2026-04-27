@@ -307,7 +307,6 @@ def _hydrate_profile(
         "age": _age_from_birth(profile.birth_date),
         "intention": profile.intention,
         "sector": profile.sector,
-        "rhythm": profile.rhythm,
         "bio": profile.bio,
         "photos": _photo_dicts(other),
         "prompts": _prompts_dicts(profile),

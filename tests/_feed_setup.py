@@ -158,7 +158,6 @@ async def make_user(
         seeking_gender=seeking,
         intention=intention,
         sector=sector,
-        rhythm="early_bird",
         tags=tags or [],
         languages=languages or ["fr"],
         prompts=prompts or [],

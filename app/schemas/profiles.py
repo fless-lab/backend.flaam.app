@@ -27,9 +27,6 @@ Sector = Literal[
     "student",
     "other",
 ]
-Rhythm = Literal["early_bird", "night_owl", "flexible"]
-
-
 class PromptEntry(BaseModel):
     question: str = Field(..., min_length=1, max_length=100)
     answer: str = Field(..., min_length=1, max_length=200)
@@ -50,9 +47,8 @@ class UpdateProfileBody(BaseModel):
     seeking_gender: SeekingGender | None = None
     intention: Intention | None = None
     sector: Sector | None = None
-    rhythm: Rhythm | None = None
 
-    bio: str | None = Field(default=None, max_length=500)
+    bio: str | None = Field(default=None, max_length=200)
 
     # `prompts` reste accepté pour la rétro-compat des clients déjà
     # déployés. Le nouveau front ne l'envoie plus.
@@ -94,7 +90,6 @@ class MyProfileResponse(BaseModel):
     seeking_gender: SeekingGender
     intention: Intention | None = None
     sector: Sector | None = None
-    rhythm: Rhythm | None = None
     bio: str | None = None
     prompts: list[PromptEntry]
     tags: list[str]
@@ -126,7 +121,6 @@ class OtherProfileResponse(BaseModel):
     gender: Gender
     intention: Intention | None = None
     sector: Sector | None = None
-    rhythm: Rhythm | None = None
     bio: str | None = None
     prompts: list[PromptEntry]
     tags: list[str]
