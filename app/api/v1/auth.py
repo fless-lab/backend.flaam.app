@@ -514,7 +514,12 @@ async def phone_change_verify_old(
     request: Request,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    user: User = Depends(get_current_user),
+    # Gates #214 : changement de numéro = ops critique.
+    # - email vérifié obligatoire (sinon perte de compte si l'OTP du
+    #   nouveau numéro échoue → plus de moyen de récup)
+    # - PIN si configuré (auth additionnelle)
+    user: User = Depends(require_email_verified),
+    _: User = Depends(require_pin),
 ) -> SimpleMessage:
     """
     Étape 1 : vérifier l'ancien numéro avant d'en changer. Émet un
