@@ -164,6 +164,7 @@ async def _make_user(
     last_active_offset_days: int = 0,
     photos_count: int = 3,
     account_age_days: int = 60,
+    feed_search_mode: str = "specific_quartiers",
 ) -> User:
     from app.utils.phone import hash_phone
 
@@ -180,6 +181,10 @@ async def _make_user(
         is_visible=visible,
         city_id=city_id,
         last_active_at=last_active,
+        # specific_quartiers par défaut dans les tests : sinon
+        # feed_search_mode = "whole_city" court-circuite la formule
+        # unified set en retournant un score géo neutre 0.5 (cf #196).
+        feed_search_mode=feed_search_mode,
     )
     # created_at est server_default → on le patch après insert si nécessaire
     db_session.add(user)
@@ -444,7 +449,12 @@ async def test_geo_scorer_soft_match_nearby(db_session):
 
 
 async def test_geo_scorer_below_threshold_is_low(db_session):
-    """Tokoin↔Agoè = 0.33 < threshold 0.40 → score quartier quasi nul."""
+    """
+    Tokoin↔Agoè = 0.33 < threshold 0.40 → la proximity ne contribue pas,
+    mais le bonus geo_unified_bonus_lives (0.30) garantit un score
+    minimum. Sémantique : Yao reste significativement plus bas qu'un
+    user qui vit dans le même quartier qu'Ama (~0.85+).
+    """
     from app.services.matching_engine.geo_scorer import (
         compute_geo_scores, load_proximity_cache,
     )
@@ -466,8 +476,10 @@ async def test_geo_scorer_below_threshold_is_low(db_session):
     scores = await compute_geo_scores(
         ama2, [data["yao"].id], config, db_session
     )
-    # Yao (Agoè) sous le seuil par rapport à Tokoin : score très bas
-    assert scores[data["yao"].id] < 0.25
+    # Yao reste "bas" : sous 0.35, donc clairement loin d'un match
+    # voisin (~0.6-0.85). Le score n'est PAS nul à cause du bonus lives
+    # de l'algo unified set, mais c'est OK — c'est un signal mou.
+    assert scores[data["yao"].id] < 0.35
 
 
 async def test_geo_scorer_interested_bridges_gap(db_session):
@@ -857,12 +869,18 @@ async def test_full_pipeline_returns_feed(db_session, redis_client):
     assert data["kofi"].id in result["profile_ids"]
 
 
-async def test_full_pipeline_returns_8_to_12(db_session, redis_client):
-    """Avec 15 candidats masculins, la taille finale ∈ [8, 12]."""
+async def test_full_pipeline_returns_at_least_min_size(db_session, redis_client):
+    """
+    Avec 15 candidats masculins, le feed doit retourner au moins
+    MATCHING_FEED_MIN_SIZE (8) profils. Pas de borne haute par défaut :
+    `MATCHING_FEED_LIMIT_ENABLED = False` en config actuelle, donc
+    le pipeline retourne TOUS les candidats triés par score.
+    """
     from app.services.matching_engine import generate_feed_for_user
+    from app.core.constants import MATCHING_FEED_MIN_SIZE
 
     data = await _seed_ama_kofi_yao(db_session)
-    # Ajoute 13 hommes supplémentaires à Tokoin pour garantir la taille
+    # Ajoute 13 hommes supplémentaires à Tokoin pour garantir un pool large
     for i in range(13):
         extra = await _make_user(
             db_session, phone=f"+2289010{i:04d}", city_id=data["city"].id,
@@ -877,7 +895,7 @@ async def test_full_pipeline_returns_8_to_12(db_session, redis_client):
     result = await generate_feed_for_user(
         data["ama"].id, db_session, redis_client
     )
-    assert 8 <= len(result["profile_ids"]) <= 12
+    assert len(result["profile_ids"]) >= MATCHING_FEED_MIN_SIZE
 
 
 async def test_first_impression_only_applies_to_women(
