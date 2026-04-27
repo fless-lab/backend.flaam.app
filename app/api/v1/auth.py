@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.api.deps import require_email_verified, require_pin
 from app.core.dependencies import get_current_user, get_db, get_redis
 from app.core.exceptions import AppException
 from app.core.errors import FlaamError
@@ -166,7 +167,11 @@ async def delete_account(
     body: DeleteAccountBody,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    user: User = Depends(get_current_user),
+    # Gates #214 :
+    # - require_pin : si l'user a un PIN configuré, doit envoyer X-Pin-Verification
+    # - require_email_verified : doit avoir un email vérifié (recovery)
+    user: User = Depends(require_email_verified),
+    _: User = Depends(require_pin),
 ) -> Response:
     """
     Soft delete (§17 RGPD, pipeline 3 phases) :
