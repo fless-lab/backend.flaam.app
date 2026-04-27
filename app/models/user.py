@@ -163,6 +163,14 @@ class User(Base, UUIDMixin, TimestampMixin):
     # ── MFA optionnel (PIN 6 chiffres hashé bcrypt) ──
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     mfa_pin_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Anti-bruteforce : compteur d'échecs consécutifs + lock temporaire.
+    # 5 échecs → lock 15 min ; 10 échecs → lock 1h. Reset à chaque succès.
+    mfa_failed_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    mfa_locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # ── Recovery email (peut différer de l'email principal) ──
     recovery_email: Mapped[str | None] = mapped_column(String(255), nullable=True)

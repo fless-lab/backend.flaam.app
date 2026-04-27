@@ -107,6 +107,19 @@ class MfaPinBody(BaseModel):
     pin: str = Field(..., pattern=r"^\d{6}$")
 
 
+class MfaChangeBody(BaseModel):
+    """Change le PIN existant. old_pin requis pour confirmer."""
+
+    old_pin: str = Field(..., pattern=r"^\d{6}$")
+    new_pin: str = Field(..., pattern=r"^\d{6}$")
+
+
+class MfaStatusResponse(BaseModel):
+    enabled: bool
+    locked_until: datetime | None = None
+    failed_attempts: int = 0
+
+
 # ── Changement de numéro ─────────────────────────────────────────────
 
 class PhoneChangeTokenResponse(BaseModel):
@@ -151,6 +164,8 @@ __all__ = [
     "RecoveryConfirmBody",
     "RecoveryCompleteBody",
     "MfaPinBody",
+    "MfaChangeBody",
+    "MfaStatusResponse",
     "PhoneChangeTokenResponse",
     "SetNewPhoneBody",
     "DeleteAccountBody",

@@ -227,6 +227,14 @@ MATCHING_ACTIVE_WINDOW_DAYS: int = 7
 MATCHING_AGE_OVERLAP_YEARS: int = 3
 MATCHING_AGE_FIT_PENALTY_PER_YEAR: float = 0.20  # 1y=0.80, 2y=0.60, 3y=0.40
 
+# ── MFA anti-bruteforce (#211) ──
+# Paliers d'échecs consécutifs avant lock temporaire. Progressif pour
+# absorber un user maladroit sans bloquer un attaquant méthodique.
+MFA_LOCK_TIER_1_ATTEMPTS: int = 5
+MFA_LOCK_TIER_1_DURATION_MINUTES: int = 15
+MFA_LOCK_TIER_2_ATTEMPTS: int = 10
+MFA_LOCK_TIER_2_DURATION_MINUTES: int = 60
+
 # Implicit preferences ajustent ±15% le lifestyle score selon l'historique
 # de like/skip de l'user. Désactivé par défaut tant qu'on n'a pas la data
 # pour valider que ça apporte plus qu'un biais de confirmation.

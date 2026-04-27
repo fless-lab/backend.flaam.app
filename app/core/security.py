@@ -76,6 +76,33 @@ def verify_pin(pin: str, pin_hash: str) -> bool:
     return _pwd_ctx.verify(pin, pin_hash)
 
 
+def compute_pin_lock_until(failed_attempts: int) -> "datetime | None":
+    """
+    Retourne le timestamp jusqu'auquel le PIN est verrouillé selon le
+    nombre d'échecs consécutifs, ou None si pas encore au seuil.
+
+    - < 5 échecs    : pas de lock
+    - 5-9 échecs    : lock 15 min
+    - 10+ échecs    : lock 1h (cumulé : reset uniquement à la prochaine
+                       réussite, pour ne pas se faire DOS par un script)
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.constants import (
+        MFA_LOCK_TIER_1_ATTEMPTS,
+        MFA_LOCK_TIER_1_DURATION_MINUTES,
+        MFA_LOCK_TIER_2_ATTEMPTS,
+        MFA_LOCK_TIER_2_DURATION_MINUTES,
+    )
+
+    now = datetime.now(timezone.utc)
+    if failed_attempts >= MFA_LOCK_TIER_2_ATTEMPTS:
+        return now + timedelta(minutes=MFA_LOCK_TIER_2_DURATION_MINUTES)
+    if failed_attempts >= MFA_LOCK_TIER_1_ATTEMPTS:
+        return now + timedelta(minutes=MFA_LOCK_TIER_1_DURATION_MINUTES)
+    return None
+
+
 # ── OTP ──────────────────────────────────────────────────────────────
 
 def generate_otp(length: int | None = None) -> str:
@@ -175,6 +202,7 @@ __all__ = [
     "decode_token",
     "hash_pin",
     "verify_pin",
+    "compute_pin_lock_until",
     "generate_otp",
     "generate_recovery_token",
     "verify_paystack_signature",

@@ -33,6 +33,7 @@ from app.core.exceptions import AppException
 from app.core.errors import FlaamError
 from app.core.i18n import detect_lang
 from app.core.security import (
+    compute_pin_lock_until,
     create_access_token,
     create_refresh_token,
     generate_recovery_token,
@@ -44,7 +45,9 @@ from app.schemas.auth import (
     AddEmailBody,
     AuthTokenResponse,
     DeleteAccountBody,
+    MfaChangeBody,
     MfaPinBody,
+    MfaStatusResponse,
     OtpRequestBody,
     OtpResendBody,
     OtpResponse,
@@ -360,14 +363,62 @@ async def recovery_complete(
 
 # ── MFA (PIN 6 chiffres) ─────────────────────────────────────────────
 
+
+def _check_mfa_lock(user: User) -> None:
+    """Lève 429 si l'user est en cooldown anti-bruteforce."""
+    if user.mfa_locked_until is None:
+        return
+    locked_until = user.mfa_locked_until
+    if locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if locked_until > now:
+        remaining = int((locked_until - now).total_seconds())
+        raise AppException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"mfa_locked:{remaining}",
+        )
+
+
+async def _on_pin_failure(user: User, db: AsyncSession) -> None:
+    """Incrémente le compteur d'échecs et met le lock si seuil atteint."""
+    user.mfa_failed_attempts = (user.mfa_failed_attempts or 0) + 1
+    user.mfa_locked_until = compute_pin_lock_until(user.mfa_failed_attempts)
+    await db.commit()
+
+
+async def _on_pin_success(user: User, db: AsyncSession) -> None:
+    """Reset le compteur et le lock après vérification réussie."""
+    if user.mfa_failed_attempts or user.mfa_locked_until:
+        user.mfa_failed_attempts = 0
+        user.mfa_locked_until = None
+        await db.commit()
+
+
+@router.get("/mfa/status", response_model=MfaStatusResponse)
+async def mfa_status(
+    user: User = Depends(get_current_user),
+) -> MfaStatusResponse:
+    return MfaStatusResponse(
+        enabled=bool(user.mfa_enabled and user.mfa_pin_hash),
+        locked_until=user.mfa_locked_until,
+        failed_attempts=user.mfa_failed_attempts or 0,
+    )
+
+
 @router.post("/mfa/enable", response_model=SimpleMessage)
 async def mfa_enable(
     body: MfaPinBody,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SimpleMessage:
+    if user.mfa_enabled and user.mfa_pin_hash:
+        # Pour modifier un PIN existant, utiliser /mfa/change.
+        raise AppException(status.HTTP_409_CONFLICT, "mfa_already_enabled")
     user.mfa_pin_hash = hash_pin(body.pin)
     user.mfa_enabled = True
+    user.mfa_failed_attempts = 0
+    user.mfa_locked_until = None
     await db.commit()
     return SimpleMessage(message="MFA enabled")
 
@@ -375,13 +426,34 @@ async def mfa_enable(
 @router.post("/mfa/verify", response_model=SimpleMessage)
 async def mfa_verify(
     body: MfaPinBody,
+    db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SimpleMessage:
     if not user.mfa_enabled or not user.mfa_pin_hash:
         raise AppException(status.HTTP_400_BAD_REQUEST, "mfa_not_enabled")
+    _check_mfa_lock(user)
     if not verify_pin(body.pin, user.mfa_pin_hash):
+        await _on_pin_failure(user, db)
         raise AppException(status.HTTP_401_UNAUTHORIZED, "invalid_pin")
+    await _on_pin_success(user, db)
     return SimpleMessage(message="MFA verified")
+
+
+@router.post("/mfa/change", response_model=SimpleMessage)
+async def mfa_change(
+    body: MfaChangeBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SimpleMessage:
+    if not user.mfa_enabled or not user.mfa_pin_hash:
+        raise AppException(status.HTTP_400_BAD_REQUEST, "mfa_not_enabled")
+    _check_mfa_lock(user)
+    if not verify_pin(body.old_pin, user.mfa_pin_hash):
+        await _on_pin_failure(user, db)
+        raise AppException(status.HTTP_401_UNAUTHORIZED, "invalid_pin")
+    user.mfa_pin_hash = hash_pin(body.new_pin)
+    await _on_pin_success(user, db)
+    return SimpleMessage(message="MFA PIN changed")
 
 
 @router.post("/mfa/disable", response_model=SimpleMessage)
@@ -392,10 +464,14 @@ async def mfa_disable(
 ) -> SimpleMessage:
     if not user.mfa_enabled or not user.mfa_pin_hash:
         raise AppException(status.HTTP_400_BAD_REQUEST, "mfa_not_enabled")
+    _check_mfa_lock(user)
     if not verify_pin(body.pin, user.mfa_pin_hash):
+        await _on_pin_failure(user, db)
         raise AppException(status.HTTP_401_UNAUTHORIZED, "invalid_pin")
     user.mfa_enabled = False
     user.mfa_pin_hash = None
+    user.mfa_failed_attempts = 0
+    user.mfa_locked_until = None
     await db.commit()
     return SimpleMessage(message="MFA disabled")
 
